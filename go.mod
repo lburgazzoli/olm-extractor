@@ -3,6 +3,7 @@ module github.com/lburgazzoli/olm-extractor
 go 1.25.5
 
 require (
+	github.com/itchyny/gojq v0.12.18
 	github.com/onsi/gomega v1.38.2
 	github.com/operator-framework/api v0.37.0
 	github.com/operator-framework/operator-lifecycle-manager v0.38.0
@@ -65,7 +66,6 @@ require (
 	github.com/h2non/filetype v1.1.3 // indirect
 	github.com/h2non/go-is-svg v0.0.0-20160927212452-35e8c4b0612c // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
-	github.com/itchyny/gojq v0.12.18 // indirect
 	github.com/itchyny/timefmt-go v0.1.7 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 
@@ -9,10 +8,10 @@ import (
 	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
 	"github.com/lburgazzoli/olm-extractor/pkg/extract"
 	"github.com/lburgazzoli/olm-extractor/pkg/filter"
+	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/render"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func main() {
@@ -29,7 +28,7 @@ func main() {
 		RunE: func(_ *cobra.Command, args []string) error {
 			input := args[0]
 
-			if err := validateNamespace(namespace); err != nil {
+			if err := kube.ValidateNamespace(namespace); err != nil {
 				return err
 			}
 
@@ -51,36 +50,6 @@ func main() {
 	}
 }
 
-func validateNamespace(ns string) error {
-	if ns == "" {
-		return errors.New("namespace cannot be empty")
-	}
-
-	if len(ns) > 63 {
-		return errors.New("namespace name too long (max 63 characters)")
-	}
-
-	for i, c := range ns {
-		isLowerAlpha := c >= 'a' && c <= 'z'
-		isDigit := c >= '0' && c <= '9'
-		isDash := c == '-'
-
-		if !isLowerAlpha && !isDigit && !isDash {
-			return errors.New("invalid namespace name: must consist of lowercase alphanumeric characters or '-'")
-		}
-
-		if i == 0 && (isDash || isDigit) {
-			return errors.New("invalid namespace name: must start with a lowercase letter")
-		}
-
-		if i == len(ns)-1 && isDash {
-			return errors.New("invalid namespace name: must end with an alphanumeric character")
-		}
-	}
-
-	return nil
-}
-
 func extractAndRender(input string, namespace string, includeExprs []string, excludeExprs []string) error {
 	b, cleanup, err := bundle.Load(input)
 	if cleanup != nil {
@@ -96,13 +65,12 @@ func extractAndRender(input string, namespace string, includeExprs []string, exc
 		return fmt.Errorf("failed to extract manifests: %w", err)
 	}
 
-	// Convert to Unstructured once and apply filters if provided
-	if len(includeExprs) > 0 || len(excludeExprs) > 0 {
-		unstructuredObjects, err := convertToUnstructured(objects)
-		if err != nil {
-			return fmt.Errorf("failed to convert objects: %w", err)
-		}
+	unstructuredObjects, err := kube.ConvertToUnstructured(objects)
+	if err != nil {
+		return fmt.Errorf("failed to convert objects: %w", err)
+	}
 
+	if len(includeExprs) > 0 || len(excludeExprs) > 0 {
 		f, err := filter.New(includeExprs, excludeExprs)
 		if err != nil {
 			return fmt.Errorf("failed to create filter: %w", err)
@@ -114,31 +82,12 @@ func extractAndRender(input string, namespace string, includeExprs []string, exc
 				filtered = append(filtered, obj)
 			}
 		}
+		unstructuredObjects = filtered
+	}
 
-		if err := render.YAMLFromUnstructured(os.Stdout, filtered); err != nil {
-			return fmt.Errorf("failed to render YAML: %w", err)
-		}
-	} else {
-		if err := render.YAML(os.Stdout, objects); err != nil {
-			return fmt.Errorf("failed to render YAML: %w", err)
-		}
+	if err := render.YAMLFromUnstructured(os.Stdout, unstructuredObjects); err != nil {
+		return fmt.Errorf("failed to render YAML: %w", err)
 	}
 
 	return nil
-}
-
-func convertToUnstructured(objects []runtime.Object) ([]*unstructured.Unstructured, error) {
-	result := make([]*unstructured.Unstructured, 0, len(objects))
-
-	for _, obj := range objects {
-		objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert to unstructured: %w", err)
-		}
-
-		u := &unstructured.Unstructured{Object: objMap}
-		result = append(result, u)
-	}
-
-	return result, nil
 }

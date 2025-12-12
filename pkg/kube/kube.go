@@ -1,11 +1,15 @@
 package kube
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -101,6 +105,54 @@ func SetNamespace(obj runtime.Object, namespace string) {
 	if accessor, ok := obj.(metav1.Object); ok {
 		accessor.SetNamespace(namespace)
 	}
+}
+
+// ValidateNamespace validates a Kubernetes namespace name according to DNS-1123 label standards.
+func ValidateNamespace(ns string) error {
+	if ns == "" {
+		return errors.New("namespace cannot be empty")
+	}
+
+	if len(ns) > 63 {
+		return errors.New("namespace name too long (max 63 characters)")
+	}
+
+	for i, c := range ns {
+		isLowerAlpha := c >= 'a' && c <= 'z'
+		isDigit := c >= '0' && c <= '9'
+		isDash := c == '-'
+
+		if !isLowerAlpha && !isDigit && !isDash {
+			return errors.New("invalid namespace name: must consist of lowercase alphanumeric characters or '-'")
+		}
+
+		if i == 0 && (isDash || isDigit) {
+			return errors.New("invalid namespace name: must start with a lowercase letter")
+		}
+
+		if i == len(ns)-1 && isDash {
+			return errors.New("invalid namespace name: must end with an alphanumeric character")
+		}
+	}
+
+	return nil
+}
+
+// ConvertToUnstructured converts a slice of runtime.Objects to Unstructured objects.
+func ConvertToUnstructured(objects []runtime.Object) ([]*unstructured.Unstructured, error) {
+	result := make([]*unstructured.Unstructured, 0, len(objects))
+
+	for _, obj := range objects {
+		objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert to unstructured: %w", err)
+		}
+
+		u := &unstructured.Unstructured{Object: objMap}
+		result = append(result, u)
+	}
+
+	return result, nil
 }
 
 // clusterScopedKinds contains Kubernetes resource kinds that are cluster-scoped.
