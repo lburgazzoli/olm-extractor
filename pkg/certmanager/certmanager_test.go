@@ -1,9 +1,9 @@
-package cainjection
+package certmanager
 
 import (
 	"testing"
 
-	certmanagerprovider "github.com/lburgazzoli/olm-extractor/pkg/cainjection/providers/certmanager"
+	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -16,7 +16,7 @@ func TestConfigure_NoWebhooks(t *testing.T) {
 		{Object: map[string]any{"kind": "Service", "metadata": map[string]any{"name": "svc"}}},
 	}
 
-	result, err := Configure(objects, "default", certmanagerprovider.New())
+	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(2))
@@ -49,7 +49,7 @@ func TestConfigure_ValidatingWebhook(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{webhook}
 
-	result, err := Configure(objects, "default", certmanagerprovider.New())
+	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(3)) // certificate + webhook + service
@@ -57,7 +57,7 @@ func TestConfigure_ValidatingWebhook(t *testing.T) {
 	// Check Certificate was created
 	var foundCert *unstructured.Unstructured
 	for _, obj := range result {
-		if obj.GetKind() == "Certificate" {
+		if obj.GetKind() == gvks.Certificate.Kind {
 			foundCert = obj
 			break
 		}
@@ -68,7 +68,7 @@ func TestConfigure_ValidatingWebhook(t *testing.T) {
 	// Check webhook has annotation
 	var foundWebhook *unstructured.Unstructured
 	for _, obj := range result {
-		if obj.GetKind() == "ValidatingWebhookConfiguration" {
+		if obj.GetKind() == gvks.ValidatingWebhookConfiguration.Kind {
 			foundWebhook = obj
 			break
 		}
@@ -107,7 +107,7 @@ func TestConfigure_MutatingWebhook(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{webhook}
 
-	result, err := Configure(objects, "default", certmanagerprovider.New())
+	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(3)) // certificate + webhook + service
@@ -115,7 +115,7 @@ func TestConfigure_MutatingWebhook(t *testing.T) {
 	// Check Certificate was created
 	var foundCert *unstructured.Unstructured
 	for _, obj := range result {
-		if obj.GetKind() == "Certificate" {
+		if obj.GetKind() == gvks.Certificate.Kind {
 			foundCert = obj
 			break
 		}
@@ -126,7 +126,7 @@ func TestConfigure_MutatingWebhook(t *testing.T) {
 	// Check webhook has annotation
 	var foundWebhook *unstructured.Unstructured
 	for _, obj := range result {
-		if obj.GetKind() == "MutatingWebhookConfiguration" {
+		if obj.GetKind() == gvks.MutatingWebhookConfiguration.Kind {
 			foundWebhook = obj
 			break
 		}
@@ -186,7 +186,7 @@ func TestConfigure_ServiceAlreadyExists(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{service, webhook}
 
-	result, err := Configure(objects, "default", certmanagerprovider.New())
+	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(3)) // certificate + service + webhook
@@ -246,7 +246,7 @@ func TestConfigure_ServiceWithDeployment(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{deployment, webhook}
 
-	result, err := Configure(objects, "default", certmanagerprovider.New())
+	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(4)) // certificate + deployment + webhook + service
@@ -254,7 +254,7 @@ func TestConfigure_ServiceWithDeployment(t *testing.T) {
 	// Find created service and verify targetPort matches deployment
 	var foundService *unstructured.Unstructured
 	for _, obj := range result {
-		if obj.GetKind() == "Service" && obj.GetName() == "my-service-webhook-service" {
+		if obj.GetKind() == gvks.Service.Kind && obj.GetName() == "my-service-webhook-service" {
 			foundService = obj
 			break
 		}
@@ -321,7 +321,7 @@ func TestConfigure_MultipleWebhooks(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{webhook1, webhook2}
 
-	result, err := Configure(objects, "default", certmanagerprovider.New())
+	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(6)) // 2 certificates + 2 webhooks + 2 services
@@ -329,7 +329,7 @@ func TestConfigure_MultipleWebhooks(t *testing.T) {
 	// Verify both webhooks have annotations
 	webhookCount := 0
 	for _, obj := range result {
-		if obj.GetKind() == "ValidatingWebhookConfiguration" || obj.GetKind() == "MutatingWebhookConfiguration" {
+		if obj.GetKind() == gvks.ValidatingWebhookConfiguration.Kind || obj.GetKind() == gvks.MutatingWebhookConfiguration.Kind {
 			webhookCount++
 			annotations := obj.GetAnnotations()
 			g.Expect(annotations).To(HaveKey("cert-manager.io/inject-ca-from"))
@@ -361,7 +361,7 @@ func TestConfigure_WebhookWithoutServiceInfo(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{webhook}
 
-	result, err := Configure(objects, "default", certmanagerprovider.New())
+	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(1)) // just the webhook, no changes
@@ -369,4 +369,175 @@ func TestConfigure_WebhookWithoutServiceInfo(t *testing.T) {
 	// Webhook should not have annotation since it doesn't use a service
 	annotations := result[0].GetAnnotations()
 	g.Expect(annotations).ToNot(HaveKey("cert-manager.io/inject-ca-from"))
+}
+
+func TestConfigure_DeploymentWithCustomLabels(t *testing.T) {
+	g := NewWithT(t)
+
+	deployment := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]any{
+				"name":      "my-controller",
+				"namespace": "default",
+			},
+			"spec": map[string]any{
+				"selector": map[string]any{
+					"matchLabels": map[string]any{
+						"app":       "custom-app",
+						"component": "webhook",
+						"tier":      "control-plane",
+					},
+				},
+				"template": map[string]any{
+					"spec": map[string]any{
+						"containers": []any{
+							map[string]any{
+								"name": "webhook",
+								"ports": []any{
+									map[string]any{
+										"containerPort": int64(8443),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	webhook := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "admissionregistration.k8s.io/v1",
+			"kind":       "ValidatingWebhookConfiguration",
+			"metadata": map[string]any{
+				"name": "my-webhook",
+			},
+			"webhooks": []any{
+				map[string]any{
+					"name": "validate.example.com",
+					"clientConfig": map[string]any{
+						"service": map[string]any{
+							"name":      "my-controller-webhook-service",
+							"namespace": "default",
+							"port":      int64(443),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	objects := []*unstructured.Unstructured{deployment, webhook}
+
+	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(HaveLen(4)) // certificate + deployment + webhook + service
+
+	// Find created service and verify it uses deployment's actual selector
+	var foundService *unstructured.Unstructured
+	for _, obj := range result {
+		if obj.GetKind() == gvks.Service.Kind && obj.GetName() == "my-controller-webhook-service" {
+			foundService = obj
+			break
+		}
+	}
+
+	g.Expect(foundService).ToNot(BeNil())
+
+	// Verify service selector matches deployment's matchLabels
+	selector, found, _ := unstructured.NestedStringMap(foundService.Object, "spec", "selector")
+	g.Expect(found).To(BeTrue())
+	g.Expect(selector).To(HaveKeyWithValue("app", "custom-app"))
+	g.Expect(selector).To(HaveKeyWithValue("component", "webhook"))
+	g.Expect(selector).To(HaveKeyWithValue("tier", "control-plane"))
+
+	// Verify targetPort was extracted from deployment
+	ports, found, _ := unstructured.NestedSlice(foundService.Object, "spec", "ports")
+	g.Expect(found).To(BeTrue())
+	g.Expect(ports).To(HaveLen(1))
+
+	port, ok := ports[0].(map[string]any)
+	g.Expect(ok).To(BeTrue())
+
+	targetPort, _, _ := unstructured.NestedInt64(port, "targetPort")
+	g.Expect(targetPort).To(Equal(int64(8443)))
+}
+
+func TestConfigure_ServiceWithExistingPort(t *testing.T) {
+	g := NewWithT(t)
+
+	service := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "Service",
+			"metadata": map[string]any{
+				"name":      "my-service",
+				"namespace": "default",
+			},
+			"spec": map[string]any{
+				"ports": []any{
+					map[string]any{
+						"name":       "https",
+						"port":       int64(8080),
+						"targetPort": int64(8080),
+						"protocol":   "TCP",
+					},
+				},
+			},
+		},
+	}
+
+	webhook := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "admissionregistration.k8s.io/v1",
+			"kind":       "ValidatingWebhookConfiguration",
+			"metadata": map[string]any{
+				"name": "my-webhook",
+			},
+			"webhooks": []any{
+				map[string]any{
+					"name": "validate.example.com",
+					"clientConfig": map[string]any{
+						"service": map[string]any{
+							"name":      "my-service",
+							"namespace": "default",
+							"port":      int64(443),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	objects := []*unstructured.Unstructured{service, webhook}
+
+	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Find service and verify port was updated to match webhook requirement
+	var foundService *unstructured.Unstructured
+	for _, obj := range result {
+		if obj.GetKind() == gvks.Service.Kind && obj.GetName() == "my-service" {
+			foundService = obj
+			break
+		}
+	}
+
+	g.Expect(foundService).ToNot(BeNil())
+
+	ports, found, _ := unstructured.NestedSlice(foundService.Object, "spec", "ports")
+	g.Expect(found).To(BeTrue())
+	g.Expect(ports).To(HaveLen(1))
+
+	port, ok := ports[0].(map[string]any)
+	g.Expect(ok).To(BeTrue())
+
+	// Port should be updated to 443
+	portNum, _, _ := unstructured.NestedInt64(port, "port")
+	g.Expect(portNum).To(Equal(int64(443)))
 }

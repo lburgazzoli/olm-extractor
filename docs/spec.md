@@ -62,6 +62,36 @@ bundle-extract <bundle-path-or-image> --namespace <namespace>
 |----------|-------|-------------|----------|
 | `--namespace` | `-n` | Target namespace for installation | Yes |
 
+### Optional Arguments
+
+| Argument | Short | Description | Default |
+|----------|-------|-------------|---------|
+| `--insecure` | | Allow insecure connections to registries (HTTP or self-signed certificates) | `false` |
+| `--include` | | jq expression to include resources (repeatable, acts as OR) | None |
+| `--exclude` | | jq expression to exclude resources (repeatable, acts as OR) | None |
+| `--ca-provider` | | CA provider for webhook certificate injection (cert-manager, openshift) | `cert-manager` |
+
+### Container Registry Authentication
+
+The tool automatically uses credentials from `~/.docker/config.json` when pulling bundle images from container registries. To authenticate with a private registry:
+
+```bash
+# Using Docker
+docker login registry.example.com
+
+# Using Podman
+podman login registry.example.com
+
+# Then extract the bundle
+bundle-extract registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
+```
+
+For registries with self-signed certificates or HTTP-only registries (development/testing), use the `--insecure` flag:
+
+```bash
+bundle-extract --insecure localhost:5000/my-operator:latest -n operators | kubectl apply -f -
+```
+
 ### Examples
 
 ```bash
@@ -70,6 +100,12 @@ bundle-extract quay.io/example/operator:v1.0.0 -n my-system | kubectl apply -f -
 
 # Extract from local directory
 bundle-extract ./bundle --namespace operators | kubectl apply -f -
+
+# Extract from private registry (after docker login)
+bundle-extract registry.example.com/private/operator:v1.0.0 -n operators | kubectl apply -f -
+
+# Extract from insecure registry
+bundle-extract --insecure localhost:5000/operator:latest -n dev | kubectl apply -f -
 
 # Save to file
 bundle-extract ./bundle -n default > install.yaml
@@ -225,10 +261,11 @@ metadata:
 Clear error messages for:
 - Invalid bundle path or image reference
 - Missing CSV in bundle
-- Image pull failures (suggests checking authentication)
+- Image pull failures (suggests authenticating with `docker login` or `podman login`)
 - Invalid namespace name (DNS-1123 validation)
 - Unsupported install strategy
 - YAML serialization errors
+- TLS verification failures (suggests using `--insecure` for development)
 
 Exit with non-zero status code on any error.
 
@@ -250,3 +287,5 @@ Exit with non-zero status code on any error.
 - ✅ Extracts ValidatingWebhookConfigurations and MutatingWebhookConfigurations
 - ✅ Generates webhook backing Services
 - ✅ Patches CRDs with conversion webhook configuration
+- ✅ Supports authentication via Docker config file
+- ✅ Supports insecure registries via `--insecure` flag

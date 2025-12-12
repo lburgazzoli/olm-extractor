@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
@@ -30,6 +31,18 @@ func FromUnstructured(u *unstructured.Unstructured, obj any) error {
 		return fmt.Errorf("failed to convert from unstructured: %w", err)
 	}
 	return nil
+}
+
+// Is returns true if the object matches the specified GroupVersionKind and name.
+func Is(obj *unstructured.Unstructured, gvk schema.GroupVersionKind, name string) bool {
+	return obj.GroupVersionKind() == gvk && obj.GetName() == name
+}
+
+// IsKind returns true if the object's kind matches the specified GroupVersionKind.
+// It compares only the Group and Kind, ignoring the Version.
+func IsKind(obj *unstructured.Unstructured, gvk schema.GroupVersionKind) bool {
+	objGVK := obj.GroupVersionKind()
+	return objGVK.Group == gvk.Group && objGVK.Kind == gvk.Kind
 }
 
 // CreateNamespace creates a Namespace object with the given name.

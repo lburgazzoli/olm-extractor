@@ -6,9 +6,7 @@ import (
 
 	"github.com/lburgazzoli/olm-extractor/internal/version"
 	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
-	"github.com/lburgazzoli/olm-extractor/pkg/cainjection"
-	certmanagerprovider "github.com/lburgazzoli/olm-extractor/pkg/cainjection/providers/certmanager"
-	openshiftprovider "github.com/lburgazzoli/olm-extractor/pkg/cainjection/providers/openshift"
+	"github.com/lburgazzoli/olm-extractor/pkg/certmanager"
 	"github.com/lburgazzoli/olm-extractor/pkg/extract"
 	"github.com/lburgazzoli/olm-extractor/pkg/filter"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
@@ -28,7 +26,7 @@ bundle and transforms them for standalone installation without OLM. It handles:
   - Services for webhooks with correct port mappings
 
 The tool supports filtering resources using jq expressions and configuring webhook CA 
-injection using different providers (cert-manager or OpenShift service CA).`
+injection using cert-manager.`
 
 const exampleUsage = `  # Extract all resources from a bundle directory
   bundle-extract -n my-namespace ./path/to/bundle
@@ -43,8 +41,8 @@ const exampleUsage = `  # Extract all resources from a bundle directory
   # Exclude Secrets from output
   bundle-extract -n my-namespace --exclude '.kind == "Secret"' ./bundle
 
-  # Use OpenShift service CA for webhook certificates
-  bundle-extract -n my-namespace --ca-provider openshift ./bundle
+  # Configure cert-manager issuer for webhook certificates
+  bundle-extract -n my-namespace --issuer-name my-issuer --issuer-kind Issuer ./bundle
 
   # Complex filtering: include high-replica Deployments
   bundle-extract -n my-namespace \
@@ -62,16 +60,20 @@ Examples:
   --exclude '.metadata.name == "unused-resource"'
   --exclude '.kind == "ConfigMap" and (.metadata.name | startswith("test-"))'`
 
-const caProviderFlagUsage = `CA provider for webhook certificate injection
-Supported providers:
-  cert-manager: Creates Certificate resources and adds cert-manager.io/inject-ca-from annotation
-  openshift:    Creates ConfigMap and uses OpenShift service CA injection`
+const caProviderFlagUsage = `CA provider for webhook certificate injection (currently only cert-manager is supported)`
+
+const issuerNameFlagUsage = `Name of the cert-manager Issuer or ClusterIssuer to use for webhook certificates`
+
+const issuerKindFlagUsage = `Kind of cert-manager issuer to use: Issuer (namespace-scoped) or ClusterIssuer (cluster-wide)`
 
 func main() {
 	var namespace string
 	var includeExprs []string
 	var excludeExprs []string
 	var caProvider string
+	var issuerName string
+	var issuerKind string
+	var insecure bool
 
 	rootCmd := &cobra.Command{
 		Use:     "bundle-extract <bundle-path-or-image>",
@@ -87,7 +89,7 @@ func main() {
 				return err
 			}
 
-			return extractAndRender(input, namespace, includeExprs, excludeExprs, caProvider)
+			return extractAndRender(input, namespace, includeExprs, excludeExprs, caProvider, issuerName, issuerKind, insecure)
 		},
 	}
 
@@ -95,6 +97,9 @@ func main() {
 	rootCmd.Flags().StringArrayVar(&includeExprs, "include", []string{}, includeFlagUsage)
 	rootCmd.Flags().StringArrayVar(&excludeExprs, "exclude", []string{}, excludeFlagUsage)
 	rootCmd.Flags().StringVar(&caProvider, "ca-provider", "cert-manager", caProviderFlagUsage)
+	rootCmd.Flags().StringVar(&issuerName, "issuer-name", "selfsigned-cluster-issuer", issuerNameFlagUsage)
+	rootCmd.Flags().StringVar(&issuerKind, "issuer-kind", "ClusterIssuer", issuerKindFlagUsage)
+	rootCmd.Flags().BoolVar(&insecure, "insecure", false, "Allow insecure connections to registries (HTTP or self-signed certificates)")
 
 	if err := rootCmd.MarkFlagRequired("namespace"); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -106,8 +111,8 @@ func main() {
 	}
 }
 
-func extractAndRender(input string, namespace string, includeExprs []string, excludeExprs []string, caProviderName string) error {
-	b, cleanup, err := bundle.Load(input)
+func extractAndRender(input string, namespace string, includeExprs []string, excludeExprs []string, caProviderName string, issuerName string, issuerKind string, insecure bool) error {
+	b, cleanup, err := bundle.Load(input, insecure)
 	if cleanup != nil {
 		defer cleanup()
 	}
@@ -141,21 +146,15 @@ func extractAndRender(input string, namespace string, includeExprs []string, exc
 		unstructuredObjects = filtered
 	}
 
-	// Get CA provider
-	var caProvider cainjection.CAProvider
-	switch caProviderName {
-	case "cert-manager":
-		caProvider = certmanagerprovider.New()
-	case "openshift":
-		caProvider = openshiftprovider.New()
-	default:
-		return fmt.Errorf("unknown CA provider: %s (supported: cert-manager, openshift)", caProviderName)
+	// Validate CA provider
+	if caProviderName != "cert-manager" {
+		return fmt.Errorf("unknown CA provider: %s (only cert-manager is supported)", caProviderName)
 	}
 
-	// Configure CA injection for webhooks
-	unstructuredObjects, err = cainjection.Configure(unstructuredObjects, namespace, caProvider)
+	// Configure cert-manager CA injection for webhooks
+	unstructuredObjects, err = certmanager.Configure(unstructuredObjects, namespace, issuerName, issuerKind)
 	if err != nil {
-		return fmt.Errorf("failed to configure CA provider: %w", err)
+		return fmt.Errorf("failed to configure cert-manager: %w", err)
 	}
 
 	if err := render.YAMLFromUnstructured(os.Stdout, unstructuredObjects); err != nil {
