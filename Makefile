@@ -17,7 +17,7 @@ LDFLAGS = -X 'github.com/lburgazzoli/olm-extractor/internal/version.Version=$(VE
 LINT_TIMEOUT := 10m
 
 ## Tools
-GOLANGCI_VERSION ?= v2.6.0
+GOLANGCI_VERSION ?= v2.7.2
 GOLANGCI ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 GOVULNCHECK_VERSION ?= latest
 GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
