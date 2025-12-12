@@ -9,6 +9,7 @@ import (
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/controller/registry/resolver"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -31,8 +32,8 @@ func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, er
 		objects = append(objects, kube.CreateNamespace(namespace))
 	}
 
-	// 2. CRDs.
-	crds := CRDs(bundle)
+	// 2. CRDs (with conversion webhook config if applicable).
+	crds := CRDs(bundle, bundle.CSV, namespace)
 	objects = append(objects, crds...)
 
 	// 3-6. RBAC and Deployments from CSV InstallStrategy.
@@ -43,7 +44,15 @@ func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, er
 
 	objects = append(objects, installObjects...)
 
-	// 7. Other resources from bundle.
+	// 7. Webhook Services (must exist before webhooks reference them).
+	webhookServices := WebhookServices(bundle.CSV, namespace)
+	objects = append(objects, webhookServices...)
+
+	// 8. ValidatingWebhookConfigurations and MutatingWebhookConfigurations.
+	webhooks := Webhooks(bundle.CSV, namespace)
+	objects = append(objects, webhooks...)
+
+	// 9. Other resources from bundle.
 	otherObjects := OtherResources(bundle, namespace)
 	objects = append(objects, otherObjects...)
 
@@ -51,8 +60,12 @@ func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, er
 }
 
 // CRDs extracts CustomResourceDefinitions from the bundle.
-func CRDs(bundle *manifests.Bundle) []runtime.Object {
+// If the CSV defines ConversionWebhooks, the CRDs are patched with conversion configuration.
+func CRDs(bundle *manifests.Bundle, csv *v1alpha1.ClusterServiceVersion, namespace string) []runtime.Object {
 	objects := make([]runtime.Object, 0, len(bundle.V1CRDs)+len(bundle.V1beta1CRDs))
+
+	// Build a map of CRDs that need conversion webhooks.
+	conversionWebhooks := buildConversionWebhookMap(csv, namespace)
 
 	// v1 CRDs.
 	for _, crd := range bundle.V1CRDs {
@@ -60,6 +73,11 @@ func CRDs(bundle *manifests.Bundle) []runtime.Object {
 		crdCopy.TypeMeta = metav1.TypeMeta{
 			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
 			Kind:       "CustomResourceDefinition",
+		}
+
+		// Apply conversion webhook config if defined.
+		if convConfig, ok := conversionWebhooks[crdCopy.Name]; ok {
+			crdCopy.Spec.Conversion = convConfig
 		}
 
 		objects = append(objects, crdCopy)
@@ -77,6 +95,59 @@ func CRDs(bundle *manifests.Bundle) []runtime.Object {
 	}
 
 	return objects
+}
+
+// buildConversionWebhookMap builds a map from CRD name to conversion config.
+func buildConversionWebhookMap(
+	csv *v1alpha1.ClusterServiceVersion,
+	namespace string,
+) map[string]*apiextensionsv1.CustomResourceConversion {
+	conversionWebhooks := make(map[string]*apiextensionsv1.CustomResourceConversion)
+
+	if csv == nil {
+		return conversionWebhooks
+	}
+
+	for _, desc := range csv.Spec.WebhookDefinitions {
+		if desc.Type != v1alpha1.ConversionWebhook {
+			continue
+		}
+
+		// Build the conversion config for each CRD this webhook applies to.
+		for _, crdName := range desc.ConversionCRDs {
+			conversionWebhooks[crdName] = createConversionConfig(desc, namespace)
+		}
+	}
+
+	return conversionWebhooks
+}
+
+// createConversionConfig creates a CustomResourceConversion config from a WebhookDescription.
+func createConversionConfig(
+	desc v1alpha1.WebhookDescription,
+	namespace string,
+) *apiextensionsv1.CustomResourceConversion {
+	port := desc.ContainerPort
+	if port == 0 {
+		port = kube.DefaultWebhookServicePort
+	}
+
+	return &apiextensionsv1.CustomResourceConversion{
+		Strategy: apiextensionsv1.WebhookConverter,
+		Webhook: &apiextensionsv1.WebhookConversion{
+			ClientConfig: &apiextensionsv1.WebhookClientConfig{
+				Service: &apiextensionsv1.ServiceReference{
+					Namespace: namespace,
+					Name:      desc.DeploymentName + "-webhook-service",
+					Path:      desc.WebhookPath,
+					Port:      &port,
+				},
+				// CA bundle left empty - users must inject certificates.
+				CABundle: nil,
+			},
+			ConversionReviewVersions: desc.AdmissionReviewVersions,
+		},
+	}
 }
 
 // InstallStrategy converts a CSV install strategy to Kubernetes resources.
@@ -198,4 +269,105 @@ func OtherResources(bundle *manifests.Bundle, namespace string) []runtime.Object
 	}
 
 	return objects
+}
+
+// Webhooks extracts ValidatingWebhookConfiguration and MutatingWebhookConfiguration
+// from the CSV's WebhookDefinitions. CA bundles are left empty - users must inject
+// certificates (e.g., via cert-manager or manual configuration).
+func Webhooks(csv *v1alpha1.ClusterServiceVersion, namespace string) []runtime.Object {
+	webhookDefs := csv.Spec.WebhookDefinitions
+	if len(webhookDefs) == 0 {
+		return nil
+	}
+
+	objects := make([]runtime.Object, 0, len(webhookDefs))
+
+	for _, desc := range webhookDefs {
+		switch desc.Type {
+		case v1alpha1.ValidatingAdmissionWebhook:
+			vwc := createValidatingWebhookConfiguration(desc, namespace)
+			objects = append(objects, vwc)
+
+		case v1alpha1.MutatingAdmissionWebhook:
+			mwc := createMutatingWebhookConfiguration(desc, namespace)
+			objects = append(objects, mwc)
+
+		case v1alpha1.ConversionWebhook:
+			// ConversionWebhooks are handled separately by patching CRDs.
+			continue
+		}
+	}
+
+	return objects
+}
+
+// WebhookServices creates Services for webhook deployments.
+// Each unique deployment referenced by webhooks gets a Service.
+func WebhookServices(csv *v1alpha1.ClusterServiceVersion, namespace string) []runtime.Object {
+	webhookDefs := csv.Spec.WebhookDefinitions
+	if len(webhookDefs) == 0 {
+		return nil
+	}
+
+	// Track unique deployments to avoid creating duplicate Services.
+	seen := make(map[string]bool)
+	objects := make([]runtime.Object, 0)
+
+	for _, desc := range webhookDefs {
+		if desc.DeploymentName == "" {
+			continue
+		}
+
+		if seen[desc.DeploymentName] {
+			continue
+		}
+		seen[desc.DeploymentName] = true
+
+		svc := kube.CreateWebhookService(desc.DeploymentName, namespace, desc.ContainerPort, desc.TargetPort)
+		objects = append(objects, svc)
+	}
+
+	return objects
+}
+
+// createValidatingWebhookConfiguration creates a ValidatingWebhookConfiguration from a WebhookDescription.
+func createValidatingWebhookConfiguration(
+	desc v1alpha1.WebhookDescription,
+	namespace string,
+) *admissionregistrationv1.ValidatingWebhookConfiguration {
+	// Get the webhook from the description helper method.
+	// Pass nil for namespaceSelector and empty caBundle - users must inject certificates.
+	webhook := desc.GetValidatingWebhook(namespace, nil, nil)
+
+	return &admissionregistrationv1.ValidatingWebhookConfiguration{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: admissionregistrationv1.SchemeGroupVersion.String(),
+			Kind:       "ValidatingWebhookConfiguration",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: desc.GenerateName,
+		},
+		Webhooks: []admissionregistrationv1.ValidatingWebhook{webhook},
+	}
+}
+
+// createMutatingWebhookConfiguration creates a MutatingWebhookConfiguration from a WebhookDescription.
+func createMutatingWebhookConfiguration(
+	desc v1alpha1.WebhookDescription,
+	namespace string,
+) *admissionregistrationv1.MutatingWebhookConfiguration {
+	// Get the webhook from the description helper method.
+	// Pass nil for namespaceSelector and empty caBundle - users must inject certificates.
+	webhook := desc.GetMutatingWebhook(namespace, nil, nil)
+
+	return &admissionregistrationv1.MutatingWebhookConfiguration{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: admissionregistrationv1.SchemeGroupVersion.String(),
+			Kind:       "MutatingWebhookConfiguration",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: desc.GenerateName,
+		},
+		Webhooks: []admissionregistrationv1.MutatingWebhook{webhook},
+	}
 }

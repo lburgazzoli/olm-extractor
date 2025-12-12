@@ -7,6 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 // CreateNamespace creates a Namespace object with the given name.
@@ -41,6 +42,53 @@ func CreateDeployment(depSpec v1alpha1.StrategyDeploymentSpec, namespace string)
 	deployment.Spec.Template.Namespace = namespace
 
 	return deployment
+}
+
+const (
+	// DefaultWebhookServicePort is the default port for webhook services.
+	DefaultWebhookServicePort = 443
+)
+
+// CreateWebhookService creates a Service for a webhook deployment.
+func CreateWebhookService(
+	deploymentName string,
+	namespace string,
+	port int32,
+	targetPort *intstr.IntOrString,
+) *corev1.Service {
+	servicePort := port
+	if servicePort == 0 {
+		servicePort = DefaultWebhookServicePort
+	}
+
+	tp := intstr.FromInt32(servicePort)
+	if targetPort != nil {
+		tp = *targetPort
+	}
+
+	return &corev1.Service{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: corev1.SchemeGroupVersion.String(),
+			Kind:       "Service",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      deploymentName + "-webhook-service",
+			Namespace: namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				"name": deploymentName,
+			},
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "https",
+					Port:       servicePort,
+					TargetPort: tp,
+					Protocol:   corev1.ProtocolTCP,
+				},
+			},
+		},
+	}
 }
 
 // IsNamespaced returns true if the given Kind is namespace-scoped.

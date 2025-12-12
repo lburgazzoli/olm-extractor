@@ -27,11 +27,14 @@ bundle-extract quay.io/example/operator-bundle:v1.0.0 -n operators | kubectl app
 
 3. **Extracted Manifests** (in order)
    - Namespace (if not "default")
-   - CustomResourceDefinitions (CRDs)
+   - CustomResourceDefinitions (CRDs, with conversion webhook config if applicable)
    - ServiceAccounts
    - Roles and RoleBindings
    - ClusterRoles and ClusterRoleBindings
    - Deployments
+   - Webhook Services (backing services for webhook deployments)
+   - ValidatingWebhookConfigurations
+   - MutatingWebhookConfigurations
    - Other bundle resources (Services, ConfigMaps, etc.)
 
 4. **Excluded from Output**
@@ -110,8 +113,8 @@ olm-extractor/
 | Package | Exports | Purpose |
 |---------|---------|---------|
 | `pkg/bundle` | `Load`, `LoadFromImage` | Load OLM bundles from directory or container image |
-| `pkg/extract` | `Manifests`, `CRDs`, `InstallStrategy`, `OtherResources` | Extract K8s resources from bundle |
-| `pkg/kube` | `CreateNamespace`, `CreateDeployment`, `IsNamespaced`, `SetNamespace` | Kubernetes resource helpers |
+| `pkg/extract` | `Manifests`, `CRDs`, `InstallStrategy`, `Webhooks`, `WebhookServices`, `OtherResources` | Extract K8s resources from bundle |
+| `pkg/kube` | `CreateNamespace`, `CreateDeployment`, `CreateWebhookService`, `IsNamespaced`, `SetNamespace` | Kubernetes resource helpers |
 | `pkg/render` | `YAML`, `ToUnstructured`, `CleanUnstructured` | YAML output and object cleaning |
 | `internal/version` | `Version`, `Commit`, `Date` | Build version info (internal only) |
 
@@ -191,6 +194,32 @@ func CleanUnstructured(obj map[string]any) map[string]any
 // Preserves zero values (0, false)
 ```
 
+### Webhook Extraction
+
+The tool extracts webhook configurations from `csv.Spec.WebhookDefinitions`:
+
+- **ValidatingAdmissionWebhook** - Creates `ValidatingWebhookConfiguration`
+- **MutatingAdmissionWebhook** - Creates `MutatingWebhookConfiguration`
+- **ConversionWebhook** - Patches CRD `spec.conversion` field
+
+For each webhook deployment, a backing Service is generated with the naming convention `<deployment-name>-webhook-service`.
+
+**Important: CA Bundle Injection Required**
+
+Webhooks are extracted with **empty CA bundles**. Users must inject TLS certificates post-extraction using one of:
+
+1. **cert-manager** - Add annotations to trigger automatic certificate injection
+2. **Manual certificates** - Generate and inject CA bundles into webhook configurations
+3. **Service mesh** - Let the mesh handle mTLS
+
+Example with cert-manager:
+```yaml
+# Add annotation to webhook configuration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: <namespace>/<certificate-name>
+```
+
 ## Error Handling
 
 Clear error messages for:
@@ -218,3 +247,6 @@ Exit with non-zero status code on any error.
 - ✅ Excludes CSV from output
 - ✅ Cleans nil/empty fields from output
 - ✅ Version info injectable via ldflags
+- ✅ Extracts ValidatingWebhookConfigurations and MutatingWebhookConfigurations
+- ✅ Generates webhook backing Services
+- ✅ Patches CRDs with conversion webhook configuration
