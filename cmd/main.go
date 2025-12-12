@@ -17,6 +17,56 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+const longDescription = `Extract Kubernetes manifests from an OLM bundle and output installation-ready YAML.
+
+This tool extracts all necessary Kubernetes resources from an OLM (Operator Lifecycle Manager) 
+bundle and transforms them for standalone installation without OLM. It handles:
+  - CustomResourceDefinitions (CRDs)
+  - RBAC resources (ServiceAccounts, Roles, RoleBindings, etc.)
+  - Deployments with proper namespace configuration
+  - Webhook configurations with automatic CA injection
+  - Services for webhooks with correct port mappings
+
+The tool supports filtering resources using jq expressions and configuring webhook CA 
+injection using different providers (cert-manager or OpenShift service CA).`
+
+const exampleUsage = `  # Extract all resources from a bundle directory
+  bundle-extract -n my-namespace ./path/to/bundle
+
+  # Extract from a container image
+  bundle-extract -n my-namespace quay.io/example/operator-bundle:v1.0.0
+
+  # Filter to include only Deployments and Services
+  bundle-extract -n my-namespace --include '.kind == "Deployment"' \
+    --include '.kind == "Service"' ./bundle
+
+  # Exclude Secrets from output
+  bundle-extract -n my-namespace --exclude '.kind == "Secret"' ./bundle
+
+  # Use OpenShift service CA for webhook certificates
+  bundle-extract -n my-namespace --ca-provider openshift ./bundle
+
+  # Complex filtering: include high-replica Deployments
+  bundle-extract -n my-namespace \
+    --include '.kind == "Deployment" and .spec.replicas > 1' ./bundle`
+
+const includeFlagUsage = `jq expression to include resources (repeatable, acts as OR)
+Examples:
+  --include '.kind == "Deployment"'
+  --include '.kind == "Deployment" and .spec.replicas > 1'
+  --include '.metadata.name == "my-operator"'`
+
+const excludeFlagUsage = `jq expression to exclude resources (repeatable, acts as OR, takes priority over include)
+Examples:
+  --exclude '.kind == "Secret"'
+  --exclude '.metadata.name == "unused-resource"'
+  --exclude '.kind == "ConfigMap" and (.metadata.name | startswith("test-"))'`
+
+const caProviderFlagUsage = `CA provider for webhook certificate injection
+Supported providers:
+  cert-manager: Creates Certificate resources and adds cert-manager.io/inject-ca-from annotation
+  openshift:    Creates ConfigMap and uses OpenShift service CA injection`
+
 func main() {
 	var namespace string
 	var includeExprs []string
@@ -26,7 +76,8 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:     "bundle-extract <bundle-path-or-image>",
 		Short:   "Extract Kubernetes manifests from an OLM bundle",
-		Long:    "Extract Kubernetes manifests from an OLM bundle and output installation-ready YAML to stdout.",
+		Long:    longDescription,
+		Example: exampleUsage,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version.Version, version.Commit, version.Date),
 		Args:    cobra.ExactArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
@@ -41,9 +92,9 @@ func main() {
 	}
 
 	rootCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Target namespace for installation (required)")
-	rootCmd.Flags().StringArrayVar(&includeExprs, "include", []string{}, "jq expression to include resources (can be repeated, acts as OR)")
-	rootCmd.Flags().StringArrayVar(&excludeExprs, "exclude", []string{}, "jq expression to exclude resources (can be repeated, acts as OR, takes priority over include)")
-	rootCmd.Flags().StringVar(&caProvider, "ca-provider", "cert-manager", "CA provider for webhooks (cert-manager, openshift)")
+	rootCmd.Flags().StringArrayVar(&includeExprs, "include", []string{}, includeFlagUsage)
+	rootCmd.Flags().StringArrayVar(&excludeExprs, "exclude", []string{}, excludeFlagUsage)
+	rootCmd.Flags().StringVar(&caProvider, "ca-provider", "cert-manager", caProviderFlagUsage)
 
 	if err := rootCmd.MarkFlagRequired("namespace"); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
