@@ -1,0 +1,119 @@
+version: "2"
+linters:
+  default: all
+  disable:
+    - wsl
+    - wsl_v5
+    - noinlineerr
+    - varnamelen
+    - exhaustruct
+    - ireturn
+    - depguard
+    - err113
+    - paralleltest
+    - funcorder
+    - funlen            # Some functions intentionally long for clarity
+    - nilerr            # Intentional: returning nil error with diagnostic result
+    - nilnil            # Intentional: returning nil,nil for not-found cases
+    - lll               # Line length handled by revive
+    - gocritic          # Too opinionated
+  exclusions:
+    rules:
+      # Test files (includes benchmarks since they're in *_test.go files)
+      - path: '.*_test\.go$'
+        linters:
+          - forcetypeassert  # Type assertion panics are acceptable in tests
+          - mnd
+          - maintidx  # Large test functions with many cases are acceptable
+          - nestif  # Some nesting acceptable in test helpers
+          - dupl  # Similar test patterns are acceptable
+          - funlen
+          - goconst  # Duplicate strings in test data are acceptable
+          - intrange  # Go 1.22+ feature, not required
+          - rangeint  # Go 1.22+ modernization, not required for tests
+          - revive  # Allow 4 return values in test setup functions
+          - unparam  # Test helpers may have unused parameters for flexibility
+      # Mock implementations
+      - path: 'pkg/util/test/mocks/.*\.go$'
+        linters:
+          - wrapcheck  # Mocks must return errors as-is from testify/mock framework
+  settings:
+    cyclop:
+      max-complexity: 15  # Increased from default 10
+    gocognit:
+      min-complexity: 50  # Increased from default 30
+    mnd:
+      ignored-functions:
+        - len
+      checks:
+        - argument
+        - case
+        - operation
+        - return
+        - assign
+    revive:
+      enable-all-rules: true
+      rules:
+        # Disable noisy rules that don't add value
+        - name: package-comments
+          disabled: true  # Package comments not critical for examples/main packages
+        - name: dot-imports
+          disabled: true  # Common practice for Gomega test assertions
+        - name: var-naming
+          disabled: true  # "types" and "util" are reasonable package names
+        - name: line-length-limit
+          disabled: true  # 80 character limit is too restrictive for modern code
+        - name: function-length
+          disabled: true  # 75 line limit too restrictive for test functions
+        - name: cognitive-complexity
+          disabled: true  # Complexity metrics are subjective
+        - name: add-constant
+          disabled: true  # Too noisy for standard Go idioms (0 init, array indices, len checks)
+        - name: unchecked-type-assertion
+          disabled: true  # Type assertions in tests are usually safe
+        - name: cyclomatic
+          disabled: true  # Cyclomatic complexity is similar to cognitive complexity
+        - name: package-directory-mismatch
+          disabled: true  # main_test pattern is intentional for example tests
+        - name: unused-receiver
+          disabled: true  # Interface methods often don't need the receiver
+        - name: empty-lines
+          disabled: true
+        - name: struct-tag # json:",inline" is commonly used in kubernetes structs
+          arguments: [ "json,inline" ]
+        - name: max-public-structs
+          disabled: true # too strict
+        - name: exported
+          disabled: true  # Comments on all exports too verbose
+        - name: if-return
+          disabled: true  # Explicit error returns are clearer
+        - name: nested-structs
+          disabled: true  # Nested structs acceptable for JSON/YAML tags
+        - name: use-waitgroup-go
+          disabled: true  # Standard wg.Add/Done pattern is fine
+        - name: empty-block
+          disabled: true  # Empty blocks with comments are intentional
+        - name: enforce-switch-style
+          disabled: true # default would make it more verbose
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - blank
+        - prefix(k8s.io)
+        - blank
+        - prefix(github.com/lburgazzoli/odh-cli)
+        - blank
+        - dot
+      custom-order: true
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
