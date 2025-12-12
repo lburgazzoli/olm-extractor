@@ -6,6 +6,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -23,6 +24,24 @@ func YAML(w io.Writer, objects []runtime.Object) error {
 		if err != nil {
 			return err
 		}
+
+		if err := encoder.Encode(cleaned); err != nil {
+			return fmt.Errorf("failed to encode object to YAML: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// YAMLFromUnstructured writes the given Unstructured objects to the writer as a multi-document YAML stream.
+func YAMLFromUnstructured(w io.Writer, objects []*unstructured.Unstructured) error {
+	encoder := yaml.NewEncoder(w)
+	encoder.SetIndent(yamlIndent)
+
+	defer func() { _ = encoder.Close() }()
+
+	for _, obj := range objects {
+		cleaned := CleanUnstructured(obj.Object)
 
 		if err := encoder.Encode(cleaned); err != nil {
 			return fmt.Errorf("failed to encode object to YAML: %w", err)
