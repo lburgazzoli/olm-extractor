@@ -6,6 +6,9 @@ import (
 
 	"github.com/lburgazzoli/olm-extractor/internal/version"
 	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
+	"github.com/lburgazzoli/olm-extractor/pkg/cainjection"
+	certmanagerprovider "github.com/lburgazzoli/olm-extractor/pkg/cainjection/providers/certmanager"
+	openshiftprovider "github.com/lburgazzoli/olm-extractor/pkg/cainjection/providers/openshift"
 	"github.com/lburgazzoli/olm-extractor/pkg/extract"
 	"github.com/lburgazzoli/olm-extractor/pkg/filter"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
@@ -18,6 +21,7 @@ func main() {
 	var namespace string
 	var includeExprs []string
 	var excludeExprs []string
+	var caProvider string
 
 	rootCmd := &cobra.Command{
 		Use:     "bundle-extract <bundle-path-or-image>",
@@ -32,13 +36,14 @@ func main() {
 				return err
 			}
 
-			return extractAndRender(input, namespace, includeExprs, excludeExprs)
+			return extractAndRender(input, namespace, includeExprs, excludeExprs, caProvider)
 		},
 	}
 
 	rootCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Target namespace for installation (required)")
 	rootCmd.Flags().StringArrayVar(&includeExprs, "include", []string{}, "jq expression to include resources (can be repeated, acts as OR)")
 	rootCmd.Flags().StringArrayVar(&excludeExprs, "exclude", []string{}, "jq expression to exclude resources (can be repeated, acts as OR, takes priority over include)")
+	rootCmd.Flags().StringVar(&caProvider, "ca-provider", "cert-manager", "CA provider for webhooks (cert-manager, openshift)")
 
 	if err := rootCmd.MarkFlagRequired("namespace"); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -50,7 +55,7 @@ func main() {
 	}
 }
 
-func extractAndRender(input string, namespace string, includeExprs []string, excludeExprs []string) error {
+func extractAndRender(input string, namespace string, includeExprs []string, excludeExprs []string, caProviderName string) error {
 	b, cleanup, err := bundle.Load(input)
 	if cleanup != nil {
 		defer cleanup()
@@ -83,6 +88,23 @@ func extractAndRender(input string, namespace string, includeExprs []string, exc
 			}
 		}
 		unstructuredObjects = filtered
+	}
+
+	// Get CA provider
+	var caProvider cainjection.CAProvider
+	switch caProviderName {
+	case "cert-manager":
+		caProvider = certmanagerprovider.New()
+	case "openshift":
+		caProvider = openshiftprovider.New()
+	default:
+		return fmt.Errorf("unknown CA provider: %s (supported: cert-manager, openshift)", caProviderName)
+	}
+
+	// Configure CA injection for webhooks
+	unstructuredObjects, err = cainjection.Configure(unstructuredObjects, namespace, caProvider)
+	if err != nil {
+		return fmt.Errorf("failed to configure CA provider: %w", err)
 	}
 
 	if err := render.YAMLFromUnstructured(os.Stdout, unstructuredObjects); err != nil {

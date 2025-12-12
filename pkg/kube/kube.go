@@ -14,6 +14,24 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+// ToUnstructured converts a typed Kubernetes object to an Unstructured object.
+func ToUnstructured(obj any) (*unstructured.Unstructured, error) {
+	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert to unstructured: %w", err)
+	}
+	return &unstructured.Unstructured{Object: unstructuredMap}, nil
+}
+
+// FromUnstructured converts an Unstructured object to a typed Kubernetes object.
+func FromUnstructured(u *unstructured.Unstructured, obj any) error {
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, obj)
+	if err != nil {
+		return fmt.Errorf("failed to convert from unstructured: %w", err)
+	}
+	return nil
+}
+
 // CreateNamespace creates a Namespace object with the given name.
 func CreateNamespace(name string) *corev1.Namespace {
 	return &corev1.Namespace{
