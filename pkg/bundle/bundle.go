@@ -49,8 +49,10 @@ func LoadFromImage(imageRef string, config RegistryConfig) (*manifests.Bundle, f
 	}
 
 	// Build registry options
+	// Use tmpDir for cache to avoid creating cache in current directory
 	registryOpts := []containerdregistry.RegistryOption{
 		containerdregistry.SkipTLSVerify(config.Insecure),
+		containerdregistry.WithCacheDir(tmpDir),
 	}
 
 	// Enable plaintext HTTP only for insecure connections (development/testing)
