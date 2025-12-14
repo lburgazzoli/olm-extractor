@@ -10,9 +10,17 @@ import (
 	"github.com/operator-framework/operator-registry/pkg/image/containerdregistry"
 )
 
+// RegistryConfig contains registry authentication and connection options.
+type RegistryConfig struct {
+	Insecure bool   `mapstructure:"registry-insecure"`
+	AuthFile string `mapstructure:"registry-auth-file"`
+	Username string `mapstructure:"registry-username"`
+	Password string `mapstructure:"registry-password"`
+}
+
 // Load loads an OLM bundle from a directory path or container image reference.
 // Returns the bundle, a cleanup function (may be nil), and any error.
-func Load(input string, insecure bool) (*manifests.Bundle, func(), error) {
+func Load(input string, config RegistryConfig) (*manifests.Bundle, func(), error) {
 	info, err := os.Stat(input)
 	if err == nil && info.IsDir() {
 		bundle, err := manifests.GetBundleFromDir(input)
@@ -23,12 +31,12 @@ func Load(input string, insecure bool) (*manifests.Bundle, func(), error) {
 		return bundle, nil, nil
 	}
 
-	return LoadFromImage(input, insecure)
+	return LoadFromImage(input, config)
 }
 
 // LoadFromImage pulls a container image and extracts the OLM bundle from it.
 // Returns the bundle, a cleanup function to remove temp files, and any error.
-func LoadFromImage(imageRef string, insecure bool) (*manifests.Bundle, func(), error) {
+func LoadFromImage(imageRef string, config RegistryConfig) (*manifests.Bundle, func(), error) {
 	ctx := context.Background()
 
 	tmpDir, err := os.MkdirTemp("", "bundle-extract-*")
@@ -40,7 +48,22 @@ func LoadFromImage(imageRef string, insecure bool) (*manifests.Bundle, func(), e
 		_ = os.RemoveAll(tmpDir)
 	}
 
-	reg, err := containerdregistry.NewRegistry(containerdregistry.SkipTLSVerify(insecure))
+	// Build registry options
+	registryOpts := []containerdregistry.RegistryOption{
+		containerdregistry.SkipTLSVerify(config.Insecure),
+	}
+
+	// Add authentication if username/password provided
+	if config.Username != "" && config.Password != "" {
+		registryOpts = append(registryOpts, containerdregistry.WithPlainHTTP(true))
+	}
+
+	// Use custom auth file if specified
+	if config.AuthFile != "" {
+		_ = os.Setenv("DOCKER_CONFIG", config.AuthFile)
+	}
+
+	reg, err := containerdregistry.NewRegistry(registryOpts...)
 	if err != nil {
 		cleanup()
 
@@ -53,7 +76,11 @@ func LoadFromImage(imageRef string, insecure bool) (*manifests.Bundle, func(), e
 	if err := reg.Pull(ctx, ref); err != nil {
 		cleanup()
 
-		return nil, nil, fmt.Errorf("failed to pull image %s: %w\nEnsure you have authenticated with 'docker login' or 'podman login'", imageRef, err)
+		if config.Username == "" && config.Password == "" {
+			return nil, nil, fmt.Errorf("failed to pull image %s: %w\nEnsure you have authenticated with 'docker login' or 'podman login'", imageRef, err)
+		}
+
+		return nil, nil, fmt.Errorf("failed to pull image %s: %w", imageRef, err)
 	}
 
 	if err := reg.Unpack(ctx, ref, tmpDir); err != nil {

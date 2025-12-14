@@ -66,14 +66,40 @@ bundle-extract <bundle-path-or-image> --namespace <namespace>
 
 | Argument | Short | Description | Default |
 |----------|-------|-------------|---------|
-| `--insecure` | | Allow insecure connections to registries (HTTP or self-signed certificates) | `false` |
 | `--include` | | jq expression to include resources (repeatable, acts as OR) | None |
 | `--exclude` | | jq expression to exclude resources (repeatable, acts as OR) | None |
-| `--ca-provider` | | CA provider for webhook certificate injection (cert-manager, openshift) | `cert-manager` |
+| `--cert-manager-enabled` | | Enable cert-manager integration for webhook certificates | `true` |
+| `--cert-manager-issuer-name` | | Name of the cert-manager Issuer or ClusterIssuer for webhook certificates | `selfsigned-cluster-issuer` |
+| `--cert-manager-issuer-kind` | | Kind of cert-manager issuer: Issuer or ClusterIssuer | `ClusterIssuer` |
+| `--registry-insecure` | | Allow insecure connections to registries (HTTP or self-signed certificates) | `false` |
+| `--registry-auth-file` | | Path to registry authentication file | `~/.docker/config.json` |
+| `--registry-username` | | Username for registry authentication | None |
+| `--registry-password` | | Password for registry authentication | None |
+
+### Environment Variables
+
+All flags can be configured using environment variables with the `BUNDLE_EXTRACT_` prefix. Flag names are converted to uppercase and dashes are replaced with underscores.
+
+| Flag | Environment Variable | Example |
+|------|---------------------|---------|
+| `--namespace` | `BUNDLE_EXTRACT_NAMESPACE` | `export BUNDLE_EXTRACT_NAMESPACE=operators` |
+| `--cert-manager-enabled` | `BUNDLE_EXTRACT_CERT_MANAGER_ENABLED` | `export BUNDLE_EXTRACT_CERT_MANAGER_ENABLED=false` |
+| `--cert-manager-issuer-name` | `BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_NAME` | `export BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_NAME=my-issuer` |
+| `--cert-manager-issuer-kind` | `BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_KIND` | `export BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_KIND=Issuer` |
+| `--registry-insecure` | `BUNDLE_EXTRACT_REGISTRY_INSECURE` | `export BUNDLE_EXTRACT_REGISTRY_INSECURE=true` |
+| `--registry-auth-file` | `BUNDLE_EXTRACT_REGISTRY_AUTH_FILE` | `export BUNDLE_EXTRACT_REGISTRY_AUTH_FILE=/path/to/config.json` |
+| `--registry-username` | `BUNDLE_EXTRACT_REGISTRY_USERNAME` | `export BUNDLE_EXTRACT_REGISTRY_USERNAME=myuser` |
+| `--registry-password` | `BUNDLE_EXTRACT_REGISTRY_PASSWORD` | `export BUNDLE_EXTRACT_REGISTRY_PASSWORD=mypass` |
+| `--include` | `BUNDLE_EXTRACT_INCLUDE` | `export BUNDLE_EXTRACT_INCLUDE='.kind == "Deployment"'` |
+| `--exclude` | `BUNDLE_EXTRACT_EXCLUDE` | `export BUNDLE_EXTRACT_EXCLUDE='.kind == "Secret"'` |
+
+Command-line flags take precedence over environment variables.
 
 ### Container Registry Authentication
 
-The tool automatically uses credentials from `~/.docker/config.json` when pulling bundle images from container registries. To authenticate with a private registry:
+The tool automatically uses credentials from `~/.docker/config.json` when pulling bundle images from container registries. 
+
+**Option 1: Using existing Docker/Podman credentials**
 
 ```bash
 # Using Docker
@@ -86,10 +112,30 @@ podman login registry.example.com
 bundle-extract registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
 ```
 
-For registries with self-signed certificates or HTTP-only registries (development/testing), use the `--insecure` flag:
+**Option 2: Using command-line flags**
 
 ```bash
-bundle-extract --insecure localhost:5000/my-operator:latest -n operators | kubectl apply -f -
+# Provide credentials directly
+bundle-extract --registry-username myuser --registry-password mypass \
+  registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
+
+# Use custom auth file
+bundle-extract --registry-auth-file /path/to/config.json \
+  registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
+```
+
+**Option 3: Using environment variables**
+
+```bash
+export BUNDLE_EXTRACT_REGISTRY_USERNAME=myuser
+export BUNDLE_EXTRACT_REGISTRY_PASSWORD=mypass
+bundle-extract registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
+```
+
+For registries with self-signed certificates or HTTP-only registries (development/testing), use the `--registry-insecure` flag:
+
+```bash
+bundle-extract --registry-insecure localhost:5000/my-operator:latest -n operators | kubectl apply -f -
 ```
 
 ### Examples
@@ -101,11 +147,27 @@ bundle-extract quay.io/example/operator:v1.0.0 -n my-system | kubectl apply -f -
 # Extract from local directory
 bundle-extract ./bundle --namespace operators | kubectl apply -f -
 
+# Extract without cert-manager integration
+bundle-extract --cert-manager-enabled=false ./bundle -n operators | kubectl apply -f -
+
+# Configure custom cert-manager issuer
+bundle-extract --cert-manager-issuer-name my-issuer --cert-manager-issuer-kind Issuer \
+  ./bundle -n operators | kubectl apply -f -
+
 # Extract from private registry (after docker login)
 bundle-extract registry.example.com/private/operator:v1.0.0 -n operators | kubectl apply -f -
 
+# Extract from private registry with inline credentials
+bundle-extract --registry-username myuser --registry-password mypass \
+  registry.example.com/private/operator:v1.0.0 -n operators | kubectl apply -f -
+
 # Extract from insecure registry
-bundle-extract --insecure localhost:5000/operator:latest -n dev | kubectl apply -f -
+bundle-extract --registry-insecure localhost:5000/operator:latest -n dev | kubectl apply -f -
+
+# Using environment variables
+export BUNDLE_EXTRACT_NAMESPACE=operators
+export BUNDLE_EXTRACT_CERT_MANAGER_ENABLED=false
+bundle-extract ./bundle | kubectl apply -f -
 
 # Save to file
 bundle-extract ./bundle -n default > install.yaml

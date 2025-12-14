@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/lburgazzoli/olm-extractor/internal/version"
 	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
@@ -12,8 +13,19 @@ import (
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/render"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+// Config holds all configuration for the application.
+type Config struct {
+	Namespace   string                `mapstructure:"namespace"`
+	Include     []string              `mapstructure:"include"`
+	Exclude     []string              `mapstructure:"exclude"`
+	CertManager certmanager.Config    `mapstructure:",squash"`
+	Registry    bundle.RegistryConfig `mapstructure:",squash"`
+}
 
 const longDescription = `Extract Kubernetes manifests from an OLM bundle and output installation-ready YAML.
 
@@ -26,7 +38,11 @@ bundle and transforms them for standalone installation without OLM. It handles:
   - Services for webhooks with correct port mappings
 
 The tool supports filtering resources using jq expressions and configuring webhook CA 
-injection using cert-manager.`
+injection using cert-manager.
+
+All flags can be configured using environment variables with the BUNDLE_EXTRACT_ prefix.
+Flag names are converted to uppercase and dashes are replaced with underscores.
+For example, --namespace can be set via BUNDLE_EXTRACT_NAMESPACE.`
 
 const exampleUsage = `  # Extract all resources from a bundle directory
   bundle-extract -n my-namespace ./path/to/bundle
@@ -34,19 +50,28 @@ const exampleUsage = `  # Extract all resources from a bundle directory
   # Extract from a container image
   bundle-extract -n my-namespace quay.io/example/operator-bundle:v1.0.0
 
+  # Extract without cert-manager integration
+  bundle-extract -n my-namespace --cert-manager-enabled=false ./bundle
+
+  # Configure cert-manager issuer for webhook certificates
+  bundle-extract -n my-namespace --cert-manager-issuer-name my-issuer \
+    --cert-manager-issuer-kind Issuer ./bundle
+
+  # Extract from insecure registry
+  bundle-extract -n my-namespace --registry-insecure localhost:5000/operator:latest
+
+  # Extract with registry authentication
+  bundle-extract -n my-namespace --registry-username user --registry-password pass \
+    quay.io/private/operator:v1.0.0
+
   # Filter to include only Deployments and Services
   bundle-extract -n my-namespace --include '.kind == "Deployment"' \
     --include '.kind == "Service"' ./bundle
 
-  # Exclude Secrets from output
-  bundle-extract -n my-namespace --exclude '.kind == "Secret"' ./bundle
-
-  # Configure cert-manager issuer for webhook certificates
-  bundle-extract -n my-namespace --issuer-name my-issuer --issuer-kind Issuer ./bundle
-
-  # Complex filtering: include high-replica Deployments
-  bundle-extract -n my-namespace \
-    --include '.kind == "Deployment" and .spec.replicas > 1' ./bundle`
+  # Using environment variables
+  export BUNDLE_EXTRACT_NAMESPACE=my-namespace
+  export BUNDLE_EXTRACT_CERT_MANAGER_ENABLED=false
+  bundle-extract ./bundle`
 
 const includeFlagUsage = `jq expression to include resources (repeatable, acts as OR)
 Examples:
@@ -60,20 +85,25 @@ Examples:
   --exclude '.metadata.name == "unused-resource"'
   --exclude '.kind == "ConfigMap" and (.metadata.name | startswith("test-"))'`
 
-const caProviderFlagUsage = `CA provider for webhook certificate injection (currently only cert-manager is supported)`
+const certManagerEnabledUsage = `Enable cert-manager integration for webhook certificates (default: true)`
 
-const issuerNameFlagUsage = `Name of the cert-manager Issuer or ClusterIssuer to use for webhook certificates`
+const certManagerIssuerNameUsage = `Name of the cert-manager Issuer or ClusterIssuer to use for webhook certificates`
 
-const issuerKindFlagUsage = `Kind of cert-manager issuer to use: Issuer (namespace-scoped) or ClusterIssuer (cluster-wide)`
+const certManagerIssuerKindUsage = `Kind of cert-manager issuer to use: Issuer (namespace-scoped) or ClusterIssuer (cluster-wide)`
+
+const registryInsecureUsage = `Allow insecure connections to registries (HTTP or self-signed certificates)`
+
+const registryAuthFileUsage = `Path to registry authentication file (defaults to ~/.docker/config.json)`
+
+const registryUsernameUsage = `Username for registry authentication`
+
+const registryPasswordUsage = `Password for registry authentication`
 
 func main() {
-	var namespace string
-	var includeExprs []string
-	var excludeExprs []string
-	var caProvider string
-	var issuerName string
-	var issuerKind string
-	var insecure bool
+	// Initialize viper for environment variable support
+	viper.SetEnvPrefix("BUNDLE_EXTRACT")
+	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
 	rootCmd := &cobra.Command{
 		Use:     "bundle-extract <bundle-path-or-image>",
@@ -85,21 +115,34 @@ func main() {
 		RunE: func(_ *cobra.Command, args []string) error {
 			input := args[0]
 
-			if err := kube.ValidateNamespace(namespace); err != nil {
-				return err
+			// Unmarshal configuration from viper (supports both flags and env vars)
+			var cfg Config
+			if err := viper.Unmarshal(&cfg); err != nil {
+				return fmt.Errorf("failed to parse configuration: %w", err)
 			}
 
-			return extractAndRender(input, namespace, includeExprs, excludeExprs, caProvider, issuerName, issuerKind, insecure)
+			if err := kube.ValidateNamespace(cfg.Namespace); err != nil {
+				return fmt.Errorf("invalid namespace: %w", err)
+			}
+
+			return extractAndRender(input, cfg)
 		},
 	}
 
-	rootCmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Target namespace for installation (required)")
-	rootCmd.Flags().StringArrayVar(&includeExprs, "include", []string{}, includeFlagUsage)
-	rootCmd.Flags().StringArrayVar(&excludeExprs, "exclude", []string{}, excludeFlagUsage)
-	rootCmd.Flags().StringVar(&caProvider, "ca-provider", "cert-manager", caProviderFlagUsage)
-	rootCmd.Flags().StringVar(&issuerName, "issuer-name", "selfsigned-cluster-issuer", issuerNameFlagUsage)
-	rootCmd.Flags().StringVar(&issuerKind, "issuer-kind", "ClusterIssuer", issuerKindFlagUsage)
-	rootCmd.Flags().BoolVar(&insecure, "insecure", false, "Allow insecure connections to registries (HTTP or self-signed certificates)")
+	// Define flags
+	rootCmd.Flags().StringP("namespace", "n", "", "Target namespace for installation (required)")
+	rootCmd.Flags().StringArray("include", []string{}, includeFlagUsage)
+	rootCmd.Flags().StringArray("exclude", []string{}, excludeFlagUsage)
+	rootCmd.Flags().Bool("cert-manager-enabled", true, certManagerEnabledUsage)
+	rootCmd.Flags().String("cert-manager-issuer-name", "selfsigned-cluster-issuer", certManagerIssuerNameUsage)
+	rootCmd.Flags().String("cert-manager-issuer-kind", "ClusterIssuer", certManagerIssuerKindUsage)
+	rootCmd.Flags().Bool("registry-insecure", false, registryInsecureUsage)
+	rootCmd.Flags().String("registry-auth-file", "", registryAuthFileUsage)
+	rootCmd.Flags().String("registry-username", "", registryUsernameUsage)
+	rootCmd.Flags().String("registry-password", "", registryPasswordUsage)
+
+	// Bind flags to viper (environment variables are automatically bound via AutomaticEnv)
+	_ = viper.BindPFlags(rootCmd.Flags())
 
 	if err := rootCmd.MarkFlagRequired("namespace"); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -111,8 +154,8 @@ func main() {
 	}
 }
 
-func extractAndRender(input string, namespace string, includeExprs []string, excludeExprs []string, caProviderName string, issuerName string, issuerKind string, insecure bool) error {
-	b, cleanup, err := bundle.Load(input, insecure)
+func extractAndRender(input string, cfg Config) error {
+	b, cleanup, err := bundle.Load(input, cfg.Registry)
 	if cleanup != nil {
 		defer cleanup()
 	}
@@ -121,7 +164,7 @@ func extractAndRender(input string, namespace string, includeExprs []string, exc
 		return fmt.Errorf("failed to load bundle: %w", err)
 	}
 
-	objects, err := extract.Manifests(b, namespace)
+	objects, err := extract.Manifests(b, cfg.Namespace)
 	if err != nil {
 		return fmt.Errorf("failed to extract manifests: %w", err)
 	}
@@ -131,8 +174,8 @@ func extractAndRender(input string, namespace string, includeExprs []string, exc
 		return fmt.Errorf("failed to convert objects: %w", err)
 	}
 
-	if len(includeExprs) > 0 || len(excludeExprs) > 0 {
-		f, err := filter.New(includeExprs, excludeExprs)
+	if len(cfg.Include) > 0 || len(cfg.Exclude) > 0 {
+		f, err := filter.New(cfg.Include, cfg.Exclude)
 		if err != nil {
 			return fmt.Errorf("failed to create filter: %w", err)
 		}
@@ -146,15 +189,12 @@ func extractAndRender(input string, namespace string, includeExprs []string, exc
 		unstructuredObjects = filtered
 	}
 
-	// Validate CA provider
-	if caProviderName != "cert-manager" {
-		return fmt.Errorf("unknown CA provider: %s (only cert-manager is supported)", caProviderName)
-	}
-
-	// Configure cert-manager CA injection for webhooks
-	unstructuredObjects, err = certmanager.Configure(unstructuredObjects, namespace, issuerName, issuerKind)
-	if err != nil {
-		return fmt.Errorf("failed to configure cert-manager: %w", err)
+	// Configure cert-manager CA injection for webhooks if enabled
+	if cfg.CertManager.Enabled {
+		unstructuredObjects, err = certmanager.Configure(unstructuredObjects, cfg.Namespace, cfg.CertManager)
+		if err != nil {
+			return fmt.Errorf("failed to configure cert-manager: %w", err)
+		}
 	}
 
 	if err := render.YAMLFromUnstructured(os.Stdout, unstructuredObjects); err != nil {

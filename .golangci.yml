@@ -34,9 +34,9 @@ linters:
           - revive  # Allow 4 return values in test setup functions
           - unparam  # Test helpers may have unused parameters for flexibility
       # Mock implementations
-      - path: 'pkg/util/test/mocks/.*\.go$'
+      - path: 'pkg/kube/gvks/.*\.go$'
         linters:
-          - wrapcheck  # Mocks must return errors as-is from testify/mock framework
+          - gochecknoglobals  
   settings:
     cyclop:
       max-complexity: 15  # Increased from default 10

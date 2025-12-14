@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
+	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	. "github.com/onsi/gomega"
 )
@@ -12,40 +15,41 @@ func TestIsNamespaced(t *testing.T) {
 	t.Run("returns false for cluster-scoped resources", func(t *testing.T) {
 		g := NewWithT(t)
 
-		clusterScoped := []string{
-			"Namespace",
-			"CustomResourceDefinition",
-			"ClusterRole",
-			"ClusterRoleBinding",
-			"PersistentVolume",
-			"StorageClass",
-			"PriorityClass",
-			"ValidatingWebhookConfiguration",
-			"MutatingWebhookConfiguration",
+		clusterScoped := []schema.GroupVersionKind{
+			gvks.Namespace,
+			gvks.CustomResourceDefinition,
+			gvks.ClusterRole,
+			gvks.ClusterRoleBinding,
+			gvks.PersistentVolume,
+			gvks.StorageClass,
+			gvks.PriorityClass,
+			gvks.ValidatingWebhookConfiguration,
+			gvks.MutatingWebhookConfiguration,
+			gvks.ClusterIssuer,
 		}
 
-		for _, kind := range clusterScoped {
-			g.Expect(kube.IsNamespaced(kind)).To(BeFalse(), "expected %q to be cluster-scoped", kind)
+		for _, gvk := range clusterScoped {
+			g.Expect(kube.IsNamespaced(gvk)).To(BeFalse(), "expected %q to be cluster-scoped", gvk.Kind)
 		}
 	})
 
 	t.Run("returns true for namespaced resources", func(t *testing.T) {
 		g := NewWithT(t)
 
-		namespaced := []string{
-			"Pod",
-			"Deployment",
-			"Service",
-			"ConfigMap",
-			"Secret",
-			"ServiceAccount",
-			"Role",
-			"RoleBinding",
-			"PersistentVolumeClaim",
+		namespaced := []schema.GroupVersionKind{
+			{Group: "", Kind: "Pod"},
+			gvks.Deployment,
+			gvks.Service,
+			gvks.ConfigMap,
+			{Group: "", Kind: "Secret"},
+			{Group: "", Kind: "ServiceAccount"},
+			{Group: "rbac.authorization.k8s.io", Kind: "Role"},
+			{Group: "rbac.authorization.k8s.io", Kind: "RoleBinding"},
+			{Group: "", Kind: "PersistentVolumeClaim"},
 		}
 
-		for _, kind := range namespaced {
-			g.Expect(kube.IsNamespaced(kind)).To(BeTrue(), "expected %q to be namespaced", kind)
+		for _, gvk := range namespaced {
+			g.Expect(kube.IsNamespaced(gvk)).To(BeTrue(), "expected %q to be namespaced", gvk.Kind)
 		}
 	})
 }

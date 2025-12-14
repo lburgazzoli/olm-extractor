@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
+
 	. "github.com/onsi/gomega"
 )
 

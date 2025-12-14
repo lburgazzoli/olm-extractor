@@ -261,7 +261,7 @@ func OtherResources(bundle *manifests.Bundle, namespace string) []runtime.Object
 		}
 
 		// Set namespace for namespaced resources.
-		if kube.IsNamespaced(gvk.Kind) {
+		if kube.IsNamespaced(gvk) {
 			kube.SetNamespace(obj, namespace)
 		}
 

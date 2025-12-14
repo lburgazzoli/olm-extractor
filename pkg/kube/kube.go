@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -21,6 +22,7 @@ func ToUnstructured(obj any) (*unstructured.Unstructured, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to unstructured: %w", err)
 	}
+
 	return &unstructured.Unstructured{Object: unstructuredMap}, nil
 }
 
@@ -30,6 +32,7 @@ func FromUnstructured(u *unstructured.Unstructured, obj any) error {
 	if err != nil {
 		return fmt.Errorf("failed to convert from unstructured: %w", err)
 	}
+
 	return nil
 }
 
@@ -42,7 +45,50 @@ func Is(obj *unstructured.Unstructured, gvk schema.GroupVersionKind, name string
 // It compares only the Group and Kind, ignoring the Version.
 func IsKind(obj *unstructured.Unstructured, gvk schema.GroupVersionKind) bool {
 	objGVK := obj.GroupVersionKind()
+
 	return objGVK.Group == gvk.Group && objGVK.Kind == gvk.Kind
+}
+
+// IsWebhookConfiguration returns true if the object is either a ValidatingWebhookConfiguration
+// or MutatingWebhookConfiguration.
+func IsWebhookConfiguration(obj *unstructured.Unstructured) bool {
+	return IsKind(obj, gvks.ValidatingWebhookConfiguration) || IsKind(obj, gvks.MutatingWebhookConfiguration)
+}
+
+// HasAnnotation returns true if the object has the specified annotation.
+// Works with any Kubernetes object (typed or unstructured).
+func HasAnnotation(obj metav1.Object, annotation string) bool {
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		return false
+	}
+	_, exists := annotations[annotation]
+
+	return exists
+}
+
+// SetAnnotation sets an annotation on the object with the given value.
+// Works with any Kubernetes object (typed or unstructured).
+func SetAnnotation(obj metav1.Object, annotation string, value string) {
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[annotation] = value
+	obj.SetAnnotations(annotations)
+}
+
+// Find returns all objects matching the predicate function.
+func Find(objects []*unstructured.Unstructured, predicate func(*unstructured.Unstructured) bool) []*unstructured.Unstructured {
+	result := make([]*unstructured.Unstructured, 0)
+
+	for _, obj := range objects {
+		if predicate(obj) {
+			result = append(result, obj)
+		}
+	}
+
+	return result
 }
 
 // CreateNamespace creates a Namespace object with the given name.
@@ -126,9 +172,9 @@ func CreateWebhookService(
 	}
 }
 
-// IsNamespaced returns true if the given Kind is namespace-scoped.
-func IsNamespaced(kind string) bool {
-	return !clusterScopedKinds[kind]
+// IsNamespaced returns true if the given GroupVersionKind is namespace-scoped.
+func IsNamespaced(gvk schema.GroupVersionKind) bool {
+	return !gvks.ClusterScoped[gvk]
 }
 
 // SetNamespace sets the namespace on a runtime.Object if it implements metav1.Object.
@@ -184,22 +230,4 @@ func ConvertToUnstructured(objects []runtime.Object) ([]*unstructured.Unstructur
 	}
 
 	return result, nil
-}
-
-// clusterScopedKinds contains Kubernetes resource kinds that are cluster-scoped.
-var clusterScopedKinds = map[string]bool{ //nolint:gochecknoglobals
-	"Namespace":                      true,
-	"CustomResourceDefinition":       true,
-	"ClusterRole":                    true,
-	"ClusterRoleBinding":             true,
-	"PersistentVolume":               true,
-	"StorageClass":                   true,
-	"PriorityClass":                  true,
-	"VolumeSnapshotClass":            true,
-	"IngressClass":                   true,
-	"RuntimeClass":                   true,
-	"PodSecurityPolicy":              true,
-	"ClusterIssuer":                  true,
-	"ValidatingWebhookConfiguration": true,
-	"MutatingWebhookConfiguration":   true,
 }

@@ -1,11 +1,14 @@
-package certmanager
+package certmanager_test
 
 import (
 	"testing"
 
+	"github.com/lburgazzoli/olm-extractor/pkg/certmanager"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
-	. "github.com/onsi/gomega"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestConfigure_NoWebhooks(t *testing.T) {
@@ -16,7 +19,12 @@ func TestConfigure_NoWebhooks(t *testing.T) {
 		{Object: map[string]any{"kind": "Service", "metadata": map[string]any{"name": "svc"}}},
 	}
 
-	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "test-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(2))
@@ -49,7 +57,12 @@ func TestConfigure_ValidatingWebhook(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{webhook}
 
-	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "test-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(3)) // certificate + webhook + service
@@ -59,6 +72,7 @@ func TestConfigure_ValidatingWebhook(t *testing.T) {
 	for _, obj := range result {
 		if obj.GetKind() == gvks.Certificate.Kind {
 			foundCert = obj
+
 			break
 		}
 	}
@@ -70,6 +84,7 @@ func TestConfigure_ValidatingWebhook(t *testing.T) {
 	for _, obj := range result {
 		if obj.GetKind() == gvks.ValidatingWebhookConfiguration.Kind {
 			foundWebhook = obj
+
 			break
 		}
 	}
@@ -107,7 +122,12 @@ func TestConfigure_MutatingWebhook(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{webhook}
 
-	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "test-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(3)) // certificate + webhook + service
@@ -117,6 +137,7 @@ func TestConfigure_MutatingWebhook(t *testing.T) {
 	for _, obj := range result {
 		if obj.GetKind() == gvks.Certificate.Kind {
 			foundCert = obj
+
 			break
 		}
 	}
@@ -128,6 +149,7 @@ func TestConfigure_MutatingWebhook(t *testing.T) {
 	for _, obj := range result {
 		if obj.GetKind() == gvks.MutatingWebhookConfiguration.Kind {
 			foundWebhook = obj
+
 			break
 		}
 	}
@@ -186,7 +208,12 @@ func TestConfigure_ServiceAlreadyExists(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{service, webhook}
 
-	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "test-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(3)) // certificate + service + webhook
@@ -246,7 +273,12 @@ func TestConfigure_ServiceWithDeployment(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{deployment, webhook}
 
-	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "test-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(4)) // certificate + deployment + webhook + service
@@ -256,6 +288,7 @@ func TestConfigure_ServiceWithDeployment(t *testing.T) {
 	for _, obj := range result {
 		if obj.GetKind() == gvks.Service.Kind && obj.GetName() == "my-service-webhook-service" {
 			foundService = obj
+
 			break
 		}
 	}
@@ -321,7 +354,12 @@ func TestConfigure_MultipleWebhooks(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{webhook1, webhook2}
 
-	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "test-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(6)) // 2 certificates + 2 webhooks + 2 services
@@ -361,7 +399,12 @@ func TestConfigure_WebhookWithoutServiceInfo(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{webhook}
 
-	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "test-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(1)) // just the webhook, no changes
@@ -432,7 +475,12 @@ func TestConfigure_DeploymentWithCustomLabels(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{deployment, webhook}
 
-	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "test-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(HaveLen(4)) // certificate + deployment + webhook + service
@@ -442,6 +490,7 @@ func TestConfigure_DeploymentWithCustomLabels(t *testing.T) {
 	for _, obj := range result {
 		if obj.GetKind() == gvks.Service.Kind && obj.GetName() == "my-controller-webhook-service" {
 			foundService = obj
+
 			break
 		}
 	}
@@ -515,7 +564,12 @@ func TestConfigure_ServiceWithExistingPort(t *testing.T) {
 
 	objects := []*unstructured.Unstructured{service, webhook}
 
-	result, err := Configure(objects, "default", "test-issuer", "ClusterIssuer")
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "test-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
 
 	g.Expect(err).ToNot(HaveOccurred())
 
@@ -524,6 +578,7 @@ func TestConfigure_ServiceWithExistingPort(t *testing.T) {
 	for _, obj := range result {
 		if obj.GetKind() == gvks.Service.Kind && obj.GetName() == "my-service" {
 			foundService = obj
+
 			break
 		}
 	}

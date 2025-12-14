@@ -1,30 +1,31 @@
-package filter
+package filter_test
 
 import (
 	"testing"
 
-	. "github.com/onsi/gomega"
+	"github.com/lburgazzoli/olm-extractor/pkg/filter"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestNew_ValidExpressions(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New(
+	f, err := filter.New(
 		[]string{".kind == \"Deployment\"", ".metadata.name == \"foo\""},
 		[]string{".kind == \"Secret\""},
 	)
 
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(f).ToNot(BeNil())
-	g.Expect(f.includeQueries).To(HaveLen(2))
-	g.Expect(f.excludeQueries).To(HaveLen(1))
 }
 
 func TestNew_InvalidIncludeExpression(t *testing.T) {
 	g := NewWithT(t)
 
-	_, err := New(
+	_, err := filter.New(
 		[]string{".kind == invalid syntax"},
 		[]string{},
 	)
@@ -36,7 +37,7 @@ func TestNew_InvalidIncludeExpression(t *testing.T) {
 func TestNew_InvalidExcludeExpression(t *testing.T) {
 	g := NewWithT(t)
 
-	_, err := New(
+	_, err := filter.New(
 		[]string{},
 		[]string{".kind == invalid syntax"},
 	)
@@ -48,7 +49,7 @@ func TestNew_InvalidExcludeExpression(t *testing.T) {
 func TestMatches_NoFilters(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New([]string{}, []string{})
+	f, err := filter.New([]string{}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
 
 	obj := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app"}}}
@@ -59,7 +60,7 @@ func TestMatches_NoFilters(t *testing.T) {
 func TestMatches_ExcludeOnly(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New([]string{}, []string{".kind == \"Secret\""})
+	f, err := filter.New([]string{}, []string{".kind == \"Secret\""})
 	g.Expect(err).ToNot(HaveOccurred())
 
 	deployment := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app"}}}
@@ -74,7 +75,7 @@ func TestMatches_ExcludeOnly(t *testing.T) {
 func TestMatches_IncludeOnly(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New([]string{".kind == \"Deployment\""}, []string{})
+	f, err := filter.New([]string{".kind == \"Deployment\""}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
 
 	deployment := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app"}}}
@@ -89,7 +90,7 @@ func TestMatches_IncludeOnly(t *testing.T) {
 func TestMatches_MultipleIncludesActAsOR(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New([]string{".kind == \"Deployment\"", ".kind == \"Service\""}, []string{})
+	f, err := filter.New([]string{".kind == \"Deployment\"", ".kind == \"Service\""}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
 
 	deployment := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app"}}}
@@ -106,7 +107,7 @@ func TestMatches_MultipleIncludesActAsOR(t *testing.T) {
 func TestMatches_MultipleExcludesActAsOR(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New([]string{}, []string{".kind == \"Secret\"", ".kind == \"ConfigMap\""})
+	f, err := filter.New([]string{}, []string{".kind == \"Secret\"", ".kind == \"ConfigMap\""})
 	g.Expect(err).ToNot(HaveOccurred())
 
 	deployment := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app"}}}
@@ -123,7 +124,7 @@ func TestMatches_MultipleExcludesActAsOR(t *testing.T) {
 func TestMatches_ExcludePriorityOverInclude(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New([]string{".kind == \"Deployment\""}, []string{".metadata.name == \"excluded-app\""})
+	f, err := filter.New([]string{".kind == \"Deployment\""}, []string{".metadata.name == \"excluded-app\""})
 	g.Expect(err).ToNot(HaveOccurred())
 
 	includedDeployment := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app"}}}
@@ -138,7 +139,7 @@ func TestMatches_ExcludePriorityOverInclude(t *testing.T) {
 func TestMatches_NestedFieldAccess(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New([]string{".metadata.namespace == \"default\""}, []string{})
+	f, err := filter.New([]string{".metadata.namespace == \"default\""}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
 
 	defaultDeployment := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app", "namespace": "default"}}}
@@ -153,7 +154,7 @@ func TestMatches_NestedFieldAccess(t *testing.T) {
 func TestMatches_ComplexJQExpression(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New([]string{".kind == \"Deployment\" and .spec.replicas > 1"}, []string{})
+	f, err := filter.New([]string{".kind == \"Deployment\" and .spec.replicas > 1"}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
 
 	highReplicaDeployment := &unstructured.Unstructured{Object: map[string]any{
@@ -183,12 +184,12 @@ func TestMatches_OnlyBooleanTrueMatches(t *testing.T) {
 	deployment := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app"}}}
 
 	// This should NOT match because .kind returns "Deployment" (a string), not true
-	f1, err := New([]string{".kind"}, []string{})
+	f1, err := filter.New([]string{".kind"}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(f1.Matches(deployment)).To(BeFalse())
 
 	// This SHOULD match because == returns boolean true
-	f2, err := New([]string{".kind == \"Deployment\""}, []string{})
+	f2, err := filter.New([]string{".kind == \"Deployment\""}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(f2.Matches(deployment)).To(BeTrue())
 }
@@ -196,7 +197,7 @@ func TestMatches_OnlyBooleanTrueMatches(t *testing.T) {
 func TestMatches_ErrorsDoNotMatch(t *testing.T) {
 	g := NewWithT(t)
 
-	f, err := New([]string{".metadata.name == \"foo\""}, []string{})
+	f, err := filter.New([]string{".metadata.name == \"foo\""}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
 
 	deploymentWithoutMetadata := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment"}}
