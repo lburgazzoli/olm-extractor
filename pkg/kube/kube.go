@@ -131,6 +131,8 @@ const (
 )
 
 // CreateWebhookService creates a Service for a webhook deployment.
+// This is a simplified helper for basic webhook service creation.
+// For more advanced scenarios with deployment info extraction, see service.go functions.
 func CreateWebhookService(
 	deploymentName string,
 	namespace string,
