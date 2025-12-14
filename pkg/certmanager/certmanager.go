@@ -32,9 +32,6 @@ const (
 	// certManagerInjectCAAnnotation is the annotation for cert-manager CA injection.
 	certManagerInjectCAAnnotation = "cert-manager.io/inject-ca-from"
 
-	// processedAnnotation marks objects that have been processed by Configure.
-	processedAnnotation = "olm-extractor.lburgazzoli.github.io/processed"
-
 	// expectedObjectsPerWebhook is the estimated number of objects generated per webhook
 	// (webhook + certificate + service).
 	expectedObjectsPerWebhook = 3
@@ -56,29 +53,38 @@ func Configure(objects []*unstructured.Unstructured, namespace string, cfg Confi
 	}
 
 	// Process all webhooks and their services
-	webhookObjects, err := processWebhooks(objects, webhooks, namespace, cfg.IssuerName, cfg.IssuerKind)
+	webhookObjects, processedServiceNames, err := processWebhooks(objects, webhooks, namespace, cfg.IssuerName, cfg.IssuerKind)
 	if err != nil {
 		return nil, err
 	}
 
 	// Add remaining non-webhook objects (excluding processed services)
 	remainingObjects := kube.Find(objects, func(obj *unstructured.Unstructured) bool {
-		return !kube.IsWebhookConfiguration(obj) && !kube.HasAnnotation(obj, processedAnnotation)
+		if kube.IsWebhookConfiguration(obj) {
+			return false
+		}
+		if kube.IsKind(obj, gvks.Service) && processedServiceNames[obj.GetName()] {
+			return false
+		}
+
+		return true
 	})
 
 	return append(webhookObjects, remainingObjects...), nil
 }
 
 // processWebhooks handles webhook processing and returns the configured webhook objects.
-// It marks processed services with an annotation to avoid duplicates.
+// It tracks processed services to avoid duplicates when shared by multiple webhooks.
+// Returns the webhook objects and a map of processed service names.
 func processWebhooks(
 	objects []*unstructured.Unstructured,
 	webhooks []*unstructured.Unstructured,
 	namespace string,
 	issuerName string,
 	issuerKind string,
-) ([]*unstructured.Unstructured, error) {
+) ([]*unstructured.Unstructured, map[string]bool, error) {
 	result := make([]*unstructured.Unstructured, 0, len(webhooks)*expectedObjectsPerWebhook)
+	processedServices := make(map[string]bool)
 
 	for _, obj := range webhooks {
 		info := extractWebhookInfo(obj)
@@ -95,7 +101,7 @@ func processWebhooks(
 		if !hasCertificate(result, certName) {
 			cert, err := createCertificate(certName, info.serviceName, namespace, issuerName, issuerKind)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create certificate %s: %w", certName, err)
+				return nil, nil, fmt.Errorf("failed to create certificate %s: %w", certName, err)
 			}
 			result = append(result, cert)
 		}
@@ -103,24 +109,22 @@ func processWebhooks(
 		// Add cert-manager annotation to webhook
 		annotatedWebhook, err := addCertManagerAnnotation(obj, certName, namespace)
 		if err != nil {
-			return nil, fmt.Errorf("failed to configure webhook %s: %w", obj.GetName(), err)
+			return nil, nil, fmt.Errorf("failed to configure webhook %s: %w", obj.GetName(), err)
 		}
 		result = append(result, annotatedWebhook)
 
-		// Ensure service exists
-		services, err := ensureService(objects, info.serviceName, namespace, info.port)
-		if err != nil {
-			return nil, fmt.Errorf("failed to ensure service %s for webhook %s: %w", info.serviceName, obj.GetName(), err)
-		}
-		for _, svc := range services {
-			if !kube.HasAnnotation(svc, processedAnnotation) {
-				kube.SetAnnotation(svc, processedAnnotation, "true")
-				result = append(result, svc)
+		// Ensure service exists (only add once if shared by multiple webhooks)
+		if !processedServices[info.serviceName] {
+			services, err := ensureService(objects, info.serviceName, namespace, info.port)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to ensure service %s for webhook %s: %w", info.serviceName, obj.GetName(), err)
 			}
+			result = append(result, services...)
+			processedServices[info.serviceName] = true
 		}
 	}
 
-	return result, nil
+	return result, processedServices, nil
 }
 
 // hasCertificate checks if a certificate with the given name exists in the result.
@@ -204,8 +208,6 @@ func ensureService(
 			if err != nil {
 				return nil, err
 			}
-			// Mark original service as processed to avoid duplicates
-			kube.SetAnnotation(obj, processedAnnotation, "true")
 
 			return services, nil
 		}

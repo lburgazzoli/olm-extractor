@@ -53,8 +53,8 @@ func LoadFromImage(imageRef string, config RegistryConfig) (*manifests.Bundle, f
 		containerdregistry.SkipTLSVerify(config.Insecure),
 	}
 
-	// Add authentication if username/password provided
-	if config.Username != "" && config.Password != "" {
+	// Enable plaintext HTTP only for insecure connections (development/testing)
+	if config.Insecure {
 		registryOpts = append(registryOpts, containerdregistry.WithPlainHTTP(true))
 	}
 
