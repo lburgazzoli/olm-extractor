@@ -21,12 +21,12 @@ type RegistryConfig struct {
 // ResolveBundle resolves the input to a bundle directory path.
 // If input is a directory, returns it directly.
 // If input is a container image reference, pulls and extracts it to a temp directory.
-// Returns: directory path, cleanup function (may be nil), error.
+// Returns: directory path, cleanup function (always non-nil), error.
 func ResolveBundle(input string, config RegistryConfig, tempDir string) (string, func(), error) {
 	info, err := os.Stat(input)
 	if err == nil && info.IsDir() {
-		// Input is already a directory, no cleanup needed
-		return input, nil, nil
+		// Input is already a directory, return no-op cleanup
+		return input, func() {}, nil
 	}
 
 	// Input is an image reference, extract it
@@ -34,7 +34,7 @@ func ResolveBundle(input string, config RegistryConfig, tempDir string) (string,
 }
 
 // Load loads an OLM bundle from a directory path or container image reference.
-// Returns the bundle, a cleanup function (may be nil), and any error.
+// Returns the bundle, a cleanup function (always non-nil), and any error.
 // tempDir specifies where temporary files should be created (empty string uses system default).
 func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundle, func(), error) {
 	dir, cleanup, err := ResolveBundle(input, config, tempDir)
@@ -44,11 +44,7 @@ func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundl
 
 	bundle, err := manifests.GetBundleFromDir(dir)
 	if err != nil {
-		if cleanup != nil {
-			cleanup()
-		}
-
-		return nil, nil, fmt.Errorf("failed to load bundle from directory: %w", err)
+		return nil, cleanup, fmt.Errorf("failed to load bundle from directory: %w", err)
 	}
 
 	return bundle, cleanup, nil
