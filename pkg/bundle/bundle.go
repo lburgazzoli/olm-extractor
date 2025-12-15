@@ -18,11 +18,11 @@ type RegistryConfig struct {
 	Password string `mapstructure:"registry-password"`
 }
 
-// ResolveBundle resolves the input to a bundle directory path.
+// resolveBundle resolves the input to a bundle directory path.
 // If input is a directory, returns it directly.
 // If input is a container image reference, pulls and extracts it to a temp directory.
 // Returns: directory path, cleanup function (always non-nil), error.
-func ResolveBundle(input string, config RegistryConfig, tempDir string) (string, func(), error) {
+func resolveBundle(input string, config RegistryConfig, tempDir string) (string, func(), error) {
 	info, err := os.Stat(input)
 	if err == nil && info.IsDir() {
 		// Input is already a directory, return no-op cleanup
@@ -37,7 +37,7 @@ func ResolveBundle(input string, config RegistryConfig, tempDir string) (string,
 // Returns the bundle, a cleanup function (always non-nil), and any error.
 // tempDir specifies where temporary files should be created (empty string uses system default).
 func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundle, func(), error) {
-	dir, cleanup, err := ResolveBundle(input, config, tempDir)
+	dir, cleanup, err := resolveBundle(input, config, tempDir)
 	if err != nil {
 		return nil, cleanup, err
 	}
