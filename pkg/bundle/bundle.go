@@ -18,26 +18,11 @@ type RegistryConfig struct {
 	Password string `mapstructure:"registry-password"`
 }
 
-// resolveBundle resolves the input to a bundle directory path.
-// If input is a directory, returns it directly.
-// If input is a container image reference, pulls and extracts it to a temp directory.
-// Returns: directory path, cleanup function (always non-nil), error.
-func resolveBundle(input string, config RegistryConfig, tempDir string) (string, func(), error) {
-	info, err := os.Stat(input)
-	if err == nil && info.IsDir() {
-		// Input is already a directory, return no-op cleanup
-		return input, func() {}, nil
-	}
-
-	// Input is an image reference, extract it
-	return extractImage(input, config, tempDir)
-}
-
 // Load loads an OLM bundle from a directory path or container image reference.
 // Returns the bundle, a cleanup function (always non-nil), and any error.
 // tempDir specifies where temporary files should be created (empty string uses system default).
 func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundle, func(), error) {
-	dir, cleanup, err := resolveBundle(input, config, tempDir)
+	dir, cleanup, err := resolve(input, config, tempDir)
 	if err != nil {
 		return nil, cleanup, err
 	}
@@ -48,6 +33,21 @@ func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundl
 	}
 
 	return bundle, cleanup, nil
+}
+
+// resolve resolves the input to a bundle directory path.
+// If input is a directory, returns it directly.
+// If input is a container image reference, pulls and extracts it to a temp directory.
+// Returns: directory path, cleanup function (always non-nil), error.
+func resolve(input string, config RegistryConfig, tempDir string) (string, func(), error) {
+	info, err := os.Stat(input)
+	if err == nil && info.IsDir() {
+		// Input is already a directory, return no-op cleanup
+		return input, func() {}, nil
+	}
+
+	// Input is an image reference, extract it
+	return extractImage(input, config, tempDir)
 }
 
 // extractImage pulls a container image and extracts it to a temporary directory.
