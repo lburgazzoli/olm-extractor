@@ -140,6 +140,217 @@ For registries with self-signed certificates or HTTP-only registries (developmen
 bundle-extract --registry-insecure localhost:5000/my-operator:latest -n operators | kubectl apply -f -
 ```
 
+### Webhook Certificate Management
+
+When extracting operators with admission webhooks (ValidatingWebhookConfiguration, MutatingWebhookConfiguration), the tool automatically configures cert-manager to manage TLS certificates. This eliminates the need for manual certificate management or OLM's certificate rotation mechanisms.
+
+#### Overview
+
+The cert-manager integration:
+- **Discovers webhook certificate secrets** from deployment volumes (no guessing)
+- **Creates cert-manager Certificate resources** with the correct secret names
+- **Injects CA bundles** into webhook configurations automatically
+- **Ensures services exist** for webhooks
+
+This allows operators with webhooks to be installed directly via `kubectl` without OLM.
+
+#### Prerequisites
+
+**1. cert-manager must be installed:**
+
+```bash
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml
+```
+
+Verify installation:
+```bash
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=120s
+```
+
+**2. A ClusterIssuer or Issuer must exist:**
+
+Create a self-signed ClusterIssuer (suitable for development and most production scenarios):
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-cluster-issuer
+spec:
+  selfSigned: {}
+EOF
+```
+
+Verify the ClusterIssuer is ready:
+```bash
+kubectl get clusterissuer selfsigned-cluster-issuer
+```
+
+#### Configuration
+
+**Default behavior** (cert-manager enabled):
+```bash
+# Uses cert-manager with default ClusterIssuer
+bundle-extract quay.io/example/operator:v1.0.0 -n operators | kubectl apply -f -
+```
+
+**Custom ClusterIssuer or Issuer:**
+```bash
+# Use a custom ClusterIssuer
+bundle-extract --cert-manager-issuer-name my-issuer \
+  quay.io/example/operator:v1.0.0 -n operators | kubectl apply -f -
+
+# Use a namespace-scoped Issuer
+bundle-extract --cert-manager-issuer-name my-issuer \
+  --cert-manager-issuer-kind Issuer \
+  quay.io/example/operator:v1.0.0 -n operators | kubectl apply -f -
+```
+
+**Disable cert-manager integration:**
+```bash
+# Manual certificate management (you must create secrets and inject CA bundles manually)
+bundle-extract --cert-manager-enabled=false \
+  quay.io/example/operator:v1.0.0 -n operators | kubectl apply -f -
+```
+
+#### How It Works
+
+When processing webhooks, the tool:
+
+1. **Extracts service information** from webhook configurations
+2. **Derives the deployment name** from the service name (removes `-service` suffix)
+3. **Inspects deployment volumes** to find the actual webhook certificate secret name
+4. **Creates a Certificate resource** with the discovered secret name
+5. **Adds annotations** to webhook configurations for CA injection
+6. **Ensures services exist** with correct selectors and ports
+
+This approach works generically across all OLM bundles regardless of naming conventions.
+
+#### Secret Name Discovery
+
+The tool automatically discovers webhook certificate secret names by:
+
+**Primary method:** Inspecting deployment volumes
+```yaml
+# Example: Tool finds "operator-webhook-cert" from deployment
+spec:
+  template:
+    spec:
+      volumes:
+        - name: cert
+          secret:
+            secretName: operator-webhook-cert  # Extracted
+```
+
+**Keyword matching:** When multiple secrets exist, selects the most likely webhook cert using keywords: `webhook`, `cert`, `tls`, `serving`
+
+**Fallback:** If deployment not found, generates name as `<service-name>-tls`
+
+#### What Gets Generated
+
+For an operator with webhooks, the tool generates:
+
+**Certificate resource:**
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: operator-service-cert
+  namespace: operators
+spec:
+  secretName: operator-webhook-cert  # Discovered from deployment
+  dnsNames:
+    - operator-service.operators.svc
+    - operator-service.operators.svc.cluster.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: selfsigned-cluster-issuer
+```
+
+**Annotated webhook:**
+```yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: operator-webhook
+  annotations:
+    cert-manager.io/inject-ca-from: operators/operator-service-cert  # Added
+```
+
+**Service (if missing):**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: operator-service
+  namespace: operators
+spec:
+  selector:
+    # Extracted from deployment labels
+  ports:
+    - port: 443
+      targetPort: 9443  # From deployment container ports
+```
+
+#### Verification
+
+After applying the manifests, verify cert-manager is working:
+
+**1. Check Certificate status:**
+```bash
+kubectl get certificate -n operators
+```
+
+Expected output:
+```
+NAME                    READY   SECRET                  AGE
+operator-service-cert   True    operator-webhook-cert   30s
+```
+
+**2. Check Secret was created:**
+```bash
+kubectl get secret operator-webhook-cert -n operators
+```
+
+**3. Check webhook is ready:**
+```bash
+kubectl get validatingwebhookconfiguration
+```
+
+The webhook should have `caBundle` populated by cert-manager.
+
+**4. Check deployment logs:**
+```bash
+kubectl logs -n operators deployment/operator-controller-manager
+```
+
+Should not show certificate-related errors.
+
+#### Troubleshooting
+
+**Certificate stays in "Pending" state:**
+- Check if cert-manager is running: `kubectl get pods -n cert-manager`
+- Check Certificate events: `kubectl describe certificate <name> -n <namespace>`
+- Verify ClusterIssuer exists: `kubectl get clusterissuer`
+
+**"secret not found" error in deployment:**
+- Secret name mismatch between Certificate and Deployment
+- Check what secret deployment expects: `kubectl get deployment <name> -o yaml | grep -A5 volumes:`
+- Check what Certificate creates: `kubectl get certificate <name> -o yaml | grep secretName`
+- If they don't match, the deployment may not have been in the original bundle
+
+**Webhook fails with "connection refused":**
+- Service selector doesn't match deployment pods
+- Check service: `kubectl get service <name> -o yaml | grep -A5 selector:`
+- Check deployment: `kubectl get deployment <name> -o yaml | grep -A5 matchLabels:`
+
+**CA bundle not injected:**
+- Check annotation exists: `kubectl get validatingwebhookconfiguration <name> -o yaml | grep inject-ca-from`
+- Check cert-manager CA injector is running: `kubectl get pods -n cert-manager -l app=cainjector`
+
+For detailed documentation on the webhook certificate resolution and configuration process, see [docs/webhook-certificates.md](webhook-certificates.md).
+
 ### Examples
 
 ```bash

@@ -95,8 +95,8 @@ func Find(objects []*unstructured.Unstructured, predicate func(*unstructured.Uns
 func CreateNamespace(name string) *corev1.Namespace {
 	return &corev1.Namespace{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: corev1.SchemeGroupVersion.String(),
-			Kind:       "Namespace",
+			APIVersion: gvks.Namespace.GroupVersion().String(),
+			Kind:       gvks.Namespace.Kind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -108,8 +108,8 @@ func CreateNamespace(name string) *corev1.Namespace {
 func CreateDeployment(depSpec v1alpha1.StrategyDeploymentSpec, namespace string) *appsv1.Deployment {
 	deployment := &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: appsv1.SchemeGroupVersion.String(),
-			Kind:       "Deployment",
+			APIVersion: gvks.Deployment.GroupVersion().String(),
+			Kind:       gvks.Deployment.Kind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      depSpec.Name,
@@ -151,8 +151,8 @@ func CreateWebhookService(
 
 	return &corev1.Service{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: corev1.SchemeGroupVersion.String(),
-			Kind:       "Service",
+			APIVersion: gvks.Service.GroupVersion().String(),
+			Kind:       gvks.Service.Kind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deploymentName + "-webhook-service",
@@ -232,4 +232,66 @@ func ConvertToUnstructured(objects []runtime.Object) ([]*unstructured.Unstructur
 	}
 
 	return result, nil
+}
+
+// SortForApply sorts unstructured objects by their resource type priority for proper kubectl apply order.
+// Ordering: Namespace → CRD → ServiceAccount → Role → RoleBinding → ClusterRole →
+// ClusterRoleBinding → Deployment → Service → Certificate → Webhook → Other.
+func SortForApply(objects []*unstructured.Unstructured) {
+	n := len(objects)
+	for i := range n - 1 {
+		for j := i + 1; j < n; j++ {
+			if getUnstructuredPriority(objects[i]) > getUnstructuredPriority(objects[j]) {
+				objects[i], objects[j] = objects[j], objects[i]
+			}
+		}
+	}
+}
+
+// Resource priority constants for kubectl apply ordering.
+const (
+	priorityNamespace = 1 + iota
+	priorityCRD
+	priorityServiceAccount
+	priorityRole
+	priorityRoleBinding
+	priorityClusterRole
+	priorityClusterRoleBinding
+	priorityDeployment
+	priorityService
+	priorityCertificate
+	priorityWebhook
+	priorityOther
+)
+
+// getUnstructuredPriority returns the application priority for an unstructured object.
+func getUnstructuredPriority(obj *unstructured.Unstructured) int {
+	kind := obj.GetKind()
+
+	switch kind {
+	case "Namespace":
+		return priorityNamespace
+	case "CustomResourceDefinition":
+		return priorityCRD
+	case "ServiceAccount":
+		return priorityServiceAccount
+	case "Role":
+		return priorityRole
+	case "RoleBinding":
+		return priorityRoleBinding
+	case "ClusterRole":
+		return priorityClusterRole
+	case "ClusterRoleBinding":
+		return priorityClusterRoleBinding
+	case "Deployment":
+		return priorityDeployment
+	case "Service":
+		return priorityService
+	case "Certificate":
+		return priorityCertificate
+	case "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration":
+		return priorityWebhook
+	default:
+		return priorityOther
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
+	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 	"github.com/operator-framework/api/pkg/manifests"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/controller/registry/resolver"
@@ -13,13 +14,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // Manifests extracts all Kubernetes manifests from an OLM bundle for the given namespace.
-// Returns objects in the proper order for kubectl apply.
+// Returns objects sorted by type priority for proper kubectl apply order.
 func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, error) {
 	if bundle.CSV == nil {
 		return nil, errors.New("bundle does not contain a ClusterServiceVersion")
@@ -27,16 +27,16 @@ func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, er
 
 	objects := make([]runtime.Object, 0)
 
-	// 1. Namespace (if not "default").
+	// Namespace (if not "default").
 	if namespace != "default" {
 		objects = append(objects, kube.CreateNamespace(namespace))
 	}
 
-	// 2. CRDs (with conversion webhook config if applicable).
+	// CRDs (with conversion webhook config if applicable).
 	crds := CRDs(bundle, bundle.CSV, namespace)
 	objects = append(objects, crds...)
 
-	// 3-6. RBAC and Deployments from CSV InstallStrategy.
+	// RBAC and Deployments from CSV InstallStrategy.
 	installObjects, err := InstallStrategy(bundle.CSV, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert install strategy: %w", err)
@@ -44,17 +44,20 @@ func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, er
 
 	objects = append(objects, installObjects...)
 
-	// 7. Webhook Services (must exist before webhooks reference them).
+	// Webhook Services.
 	webhookServices := WebhookServices(bundle.CSV, namespace)
 	objects = append(objects, webhookServices...)
 
-	// 8. ValidatingWebhookConfigurations and MutatingWebhookConfigurations.
+	// ValidatingWebhookConfigurations and MutatingWebhookConfigurations.
 	webhooks := Webhooks(bundle.CSV, namespace)
 	objects = append(objects, webhooks...)
 
-	// 9. Other resources from bundle.
+	// Other resources from bundle.
 	otherObjects := OtherResources(bundle, namespace)
 	objects = append(objects, otherObjects...)
+
+	// Sort resources by priority for proper kubectl apply order.
+	objects = sortKubernetesResources(objects)
 
 	return objects, nil
 }
@@ -71,8 +74,8 @@ func CRDs(bundle *manifests.Bundle, csv *v1alpha1.ClusterServiceVersion, namespa
 	for _, crd := range bundle.V1CRDs {
 		crdCopy := crd.DeepCopy()
 		crdCopy.TypeMeta = metav1.TypeMeta{
-			APIVersion: apiextensionsv1.SchemeGroupVersion.String(),
-			Kind:       "CustomResourceDefinition",
+			APIVersion: gvks.CustomResourceDefinition.GroupVersion().String(),
+			Kind:       gvks.CustomResourceDefinition.Kind,
 		}
 
 		// Apply conversion webhook config if defined.
@@ -87,8 +90,8 @@ func CRDs(bundle *manifests.Bundle, csv *v1alpha1.ClusterServiceVersion, namespa
 	for _, crd := range bundle.V1beta1CRDs {
 		crdCopy := crd.DeepCopy()
 		crdCopy.TypeMeta = metav1.TypeMeta{
-			APIVersion: apiextensionsv1beta1.SchemeGroupVersion.String(),
-			Kind:       "CustomResourceDefinition",
+			APIVersion: gvks.CustomResourceDefinitionV1Beta1.GroupVersion().String(),
+			Kind:       gvks.CustomResourceDefinitionV1Beta1.Kind,
 		}
 
 		objects = append(objects, crdCopy)
@@ -169,71 +172,32 @@ func InstallStrategy(csv *v1alpha1.ClusterServiceVersion, namespace string) ([]r
 
 	objects := make([]runtime.Object, 0)
 
-	// Extract resources from OperatorPermissions, maintaining proper order.
-	// First pass: collect all ServiceAccounts.
-	for _, perm := range permissions {
-		if perm.ServiceAccount != nil {
-			sa := perm.ServiceAccount.DeepCopy()
-			sa.TypeMeta = metav1.TypeMeta{
-				APIVersion: corev1.SchemeGroupVersion.String(),
-				Kind:       "ServiceAccount",
-			}
-			// Clear OLM-specific owner references for standalone installation.
-			sa.OwnerReferences = nil
-
+	// Extract resources from OperatorPermissions in a single pass.
+	// Helper functions maintain proper ordering per permission.
+	for _, perms := range permissions {
+		// ServiceAccount
+		if sa := processServiceAccount(perms); sa != nil {
 			objects = append(objects, sa)
 		}
-	}
 
-	// Second pass: collect all Roles and RoleBindings.
-	for _, perm := range permissions {
-		for _, role := range perm.Roles {
-			roleCopy := role.DeepCopy()
-			roleCopy.TypeMeta = metav1.TypeMeta{
-				APIVersion: rbacv1.SchemeGroupVersion.String(),
-				Kind:       "Role",
-			}
-			roleCopy.OwnerReferences = nil
-			roleCopy.Labels = nil
-
-			objects = append(objects, roleCopy)
+		// Roles
+		for _, role := range processRoles(perms) {
+			objects = append(objects, role)
 		}
 
-		for _, rb := range perm.RoleBindings {
-			rbCopy := rb.DeepCopy()
-			rbCopy.TypeMeta = metav1.TypeMeta{
-				APIVersion: rbacv1.SchemeGroupVersion.String(),
-				Kind:       "RoleBinding",
-			}
-			rbCopy.OwnerReferences = nil
-			rbCopy.Labels = nil
-
-			objects = append(objects, rbCopy)
-		}
-	}
-
-	// Third pass: collect all ClusterRoles and ClusterRoleBindings.
-	for _, perm := range permissions {
-		for _, cr := range perm.ClusterRoles {
-			crCopy := cr.DeepCopy()
-			crCopy.TypeMeta = metav1.TypeMeta{
-				APIVersion: rbacv1.SchemeGroupVersion.String(),
-				Kind:       "ClusterRole",
-			}
-			crCopy.Labels = nil
-
-			objects = append(objects, crCopy)
+		// RoleBindings
+		for _, rb := range processRoleBindings(perms) {
+			objects = append(objects, rb)
 		}
 
-		for _, crb := range perm.ClusterRoleBindings {
-			crbCopy := crb.DeepCopy()
-			crbCopy.TypeMeta = metav1.TypeMeta{
-				APIVersion: rbacv1.SchemeGroupVersion.String(),
-				Kind:       "ClusterRoleBinding",
-			}
-			crbCopy.Labels = nil
+		// ClusterRoles
+		for _, cr := range processClusterRoles(perms) {
+			objects = append(objects, cr)
+		}
 
-			objects = append(objects, crbCopy)
+		// ClusterRoleBindings
+		for _, crb := range processClusterRoleBindings(perms) {
+			objects = append(objects, crb)
 		}
 	}
 
@@ -245,6 +209,126 @@ func InstallStrategy(csv *v1alpha1.ClusterServiceVersion, namespace string) ([]r
 	}
 
 	return objects, nil
+}
+
+// processServiceAccount processes a ServiceAccount from OperatorPermissions.
+func processServiceAccount(perm *resolver.OperatorPermissions) *corev1.ServiceAccount {
+	if perm.ServiceAccount == nil {
+		return nil
+	}
+
+	sa := perm.ServiceAccount.DeepCopy()
+	sa.TypeMeta = metav1.TypeMeta{
+		APIVersion: gvks.ServiceAccount.GroupVersion().String(),
+		Kind:       gvks.ServiceAccount.Kind,
+	}
+	// Clear OLM-specific owner references for standalone installation.
+	sa.OwnerReferences = nil
+
+	return sa
+}
+
+// processRoles processes all Roles from OperatorPermissions.
+func processRoles(perm *resolver.OperatorPermissions) []*rbacv1.Role {
+	if len(perm.Roles) == 0 {
+		return nil
+	}
+
+	roles := make([]*rbacv1.Role, 0, len(perm.Roles))
+	for _, role := range perm.Roles {
+		roleCopy := role.DeepCopy()
+		roleCopy.TypeMeta = metav1.TypeMeta{
+			APIVersion: gvks.Role.GroupVersion().String(),
+			Kind:       gvks.Role.Kind,
+		}
+		roleCopy.OwnerReferences = nil
+		roleCopy.Labels = nil
+		roleCopy.Rules = normalizeRBACRules(roleCopy.Rules)
+
+		roles = append(roles, roleCopy)
+	}
+
+	return roles
+}
+
+// processRoleBindings processes all RoleBindings from OperatorPermissions.
+func processRoleBindings(perm *resolver.OperatorPermissions) []*rbacv1.RoleBinding {
+	if len(perm.RoleBindings) == 0 {
+		return nil
+	}
+
+	bindings := make([]*rbacv1.RoleBinding, 0, len(perm.RoleBindings))
+	for _, rb := range perm.RoleBindings {
+		rbCopy := rb.DeepCopy()
+		rbCopy.TypeMeta = metav1.TypeMeta{
+			APIVersion: gvks.RoleBinding.GroupVersion().String(),
+			Kind:       gvks.RoleBinding.Kind,
+		}
+		rbCopy.OwnerReferences = nil
+		rbCopy.Labels = nil
+
+		bindings = append(bindings, rbCopy)
+	}
+
+	return bindings
+}
+
+// processClusterRoles processes all ClusterRoles from OperatorPermissions.
+func processClusterRoles(perm *resolver.OperatorPermissions) []*rbacv1.ClusterRole {
+	if len(perm.ClusterRoles) == 0 {
+		return nil
+	}
+
+	clusterRoles := make([]*rbacv1.ClusterRole, 0, len(perm.ClusterRoles))
+	for _, cr := range perm.ClusterRoles {
+		crCopy := cr.DeepCopy()
+		crCopy.TypeMeta = metav1.TypeMeta{
+			APIVersion: gvks.ClusterRole.GroupVersion().String(),
+			Kind:       gvks.ClusterRole.Kind,
+		}
+		crCopy.Labels = nil
+		crCopy.Rules = normalizeRBACRules(crCopy.Rules)
+
+		clusterRoles = append(clusterRoles, crCopy)
+	}
+
+	return clusterRoles
+}
+
+// processClusterRoleBindings processes all ClusterRoleBindings from OperatorPermissions.
+func processClusterRoleBindings(perm *resolver.OperatorPermissions) []*rbacv1.ClusterRoleBinding {
+	if len(perm.ClusterRoleBindings) == 0 {
+		return nil
+	}
+
+	bindings := make([]*rbacv1.ClusterRoleBinding, 0, len(perm.ClusterRoleBindings))
+	for _, crb := range perm.ClusterRoleBindings {
+		crbCopy := crb.DeepCopy()
+		crbCopy.TypeMeta = metav1.TypeMeta{
+			APIVersion: gvks.ClusterRoleBinding.GroupVersion().String(),
+			Kind:       gvks.ClusterRoleBinding.Kind,
+		}
+		crbCopy.Labels = nil
+
+		bindings = append(bindings, crbCopy)
+	}
+
+	return bindings
+}
+
+// normalizeRBACRules ensures all RBAC rules have apiGroups field.
+// Kubernetes requires apiGroups even for core resources (use empty string "").
+func normalizeRBACRules(rules []rbacv1.PolicyRule) []rbacv1.PolicyRule {
+	normalized := make([]rbacv1.PolicyRule, len(rules))
+	for i, rule := range rules {
+		normalized[i] = rule
+		// If rule has resources but no apiGroups, default to core API group
+		if len(rule.Resources) > 0 && len(rule.APIGroups) == 0 {
+			normalized[i].APIGroups = []string{""}
+		}
+	}
+
+	return normalized
 }
 
 // OtherResources extracts non-CRD, non-CSV resources from the bundle.
@@ -341,8 +425,8 @@ func createValidatingWebhookConfiguration(
 
 	return &admissionregistrationv1.ValidatingWebhookConfiguration{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: admissionregistrationv1.SchemeGroupVersion.String(),
-			Kind:       "ValidatingWebhookConfiguration",
+			APIVersion: gvks.ValidatingWebhookConfiguration.GroupVersion().String(),
+			Kind:       gvks.ValidatingWebhookConfiguration.Kind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: desc.GenerateName,
@@ -362,12 +446,82 @@ func createMutatingWebhookConfiguration(
 
 	return &admissionregistrationv1.MutatingWebhookConfiguration{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: admissionregistrationv1.SchemeGroupVersion.String(),
-			Kind:       "MutatingWebhookConfiguration",
+			APIVersion: gvks.MutatingWebhookConfiguration.GroupVersion().String(),
+			Kind:       gvks.MutatingWebhookConfiguration.Kind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: desc.GenerateName,
 		},
 		Webhooks: []admissionregistrationv1.MutatingWebhook{webhook},
+	}
+}
+
+// Resource priority constants for kubectl apply ordering.
+const (
+	priorityNamespace = 1 + iota
+	priorityCRD
+	priorityServiceAccount
+	priorityRole
+	priorityRoleBinding
+	priorityClusterRole
+	priorityClusterRoleBinding
+	priorityDeployment
+	priorityService
+	priorityCertificate // cert-manager Certificates must come before webhooks that use them
+	priorityWebhook
+	priorityOther
+)
+
+// sortKubernetesResources sorts resources by their type priority for proper kubectl apply order.
+// Ordering: Namespace → CRD → ServiceAccount → Role → RoleBinding → ClusterRole →
+// ClusterRoleBinding → Deployment → Service → Certificate → Webhook → Other.
+func sortKubernetesResources(objects []runtime.Object) []runtime.Object {
+	// Create a copy to avoid modifying the original slice
+	sorted := make([]runtime.Object, len(objects))
+	copy(sorted, objects)
+
+	// Sort using priority function (bubble sort)
+	n := len(sorted)
+	for i := range n - 1 {
+		for j := i + 1; j < n; j++ {
+			if getResourcePriority(sorted[i]) > getResourcePriority(sorted[j]) {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+
+	return sorted
+}
+
+// getResourcePriority returns the priority order for a resource type.
+// Lower numbers are applied first.
+func getResourcePriority(obj runtime.Object) int {
+	gvk := obj.GetObjectKind().GroupVersionKind()
+
+	switch gvk.Kind {
+	case "Namespace":
+		return priorityNamespace
+	case "CustomResourceDefinition":
+		return priorityCRD
+	case "ServiceAccount":
+		return priorityServiceAccount
+	case "Role":
+		return priorityRole
+	case "RoleBinding":
+		return priorityRoleBinding
+	case "ClusterRole":
+		return priorityClusterRole
+	case "ClusterRoleBinding":
+		return priorityClusterRoleBinding
+	case "Deployment":
+		return priorityDeployment
+	case "Service":
+		return priorityService
+	case "Certificate":
+		return priorityCertificate
+	case "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration":
+		return priorityWebhook
+	default:
+		return priorityOther
 	}
 }

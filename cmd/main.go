@@ -168,11 +168,7 @@ func main() {
 }
 
 func extractAndRender(input string, cfg Config) error {
-	b, cleanup, err := bundle.Load(input, cfg.Registry, cfg.TempDir)
-	if cleanup != nil {
-		defer cleanup()
-	}
-
+	b, err := bundle.Load(input, cfg.Registry, cfg.TempDir)
 	if err != nil {
 		return fmt.Errorf("failed to load bundle: %w", err)
 	}
@@ -209,6 +205,9 @@ func extractAndRender(input string, cfg Config) error {
 			return fmt.Errorf("failed to configure cert-manager: %w", err)
 		}
 	}
+
+	// Sort objects by priority to ensure proper kubectl apply order
+	kube.SortForApply(unstructuredObjects)
 
 	if err := render.YAMLFromUnstructured(os.Stdout, unstructuredObjects); err != nil {
 		return fmt.Errorf("failed to render YAML: %w", err)

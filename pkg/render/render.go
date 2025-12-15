@@ -96,6 +96,13 @@ func cleanValue(value any) any {
 		cleaned := make([]any, 0, len(v))
 
 		for _, item := range v {
+			// Preserve empty strings in arrays (e.g. apiGroups: [""] = core API in Kubernetes)
+			if str, ok := item.(string); ok && str == "" {
+				cleaned = append(cleaned, "")
+
+				continue
+			}
+
 			if c := cleanValue(item); c != nil {
 				cleaned = append(cleaned, c)
 			}

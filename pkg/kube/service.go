@@ -101,8 +101,8 @@ func CreateService(
 
 	svc := &corev1.Service{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: corev1.SchemeGroupVersion.String(),
-			Kind:       "Service",
+			APIVersion: gvks.Service.GroupVersion().String(),
+			Kind:       gvks.Service.Kind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      serviceName,

@@ -19,20 +19,23 @@ type RegistryConfig struct {
 }
 
 // Load loads an OLM bundle from a directory path or container image reference.
-// Returns the bundle, a cleanup function (always non-nil), and any error.
+// For image references, temporary files are automatically cleaned up after loading.
 // tempDir specifies where temporary files should be created (empty string uses system default).
-func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundle, func(), error) {
+func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundle, error) {
 	dir, cleanup, err := resolve(input, config, tempDir)
 	if err != nil {
-		return nil, cleanup, err
+		return nil, err
 	}
+
+	// Ensure cleanup runs regardless of success or failure
+	defer cleanup()
 
 	bundle, err := manifests.GetBundleFromDir(dir)
 	if err != nil {
-		return nil, cleanup, fmt.Errorf("failed to load bundle from directory: %w", err)
+		return nil, fmt.Errorf("failed to load bundle from directory: %w", err)
 	}
 
-	return bundle, cleanup, nil
+	return bundle, nil
 }
 
 // resolve resolves the input to a bundle directory path.
@@ -55,21 +58,31 @@ func resolve(input string, config RegistryConfig, tempDir string) (string, func(
 func extractImage(imageRef string, config RegistryConfig, tempDir string) (string, func(), error) {
 	ctx := context.Background()
 
-	// If tempDir is empty, use system default (os.TempDir())
+	// Create temporary directory for unpacked bundle
 	tmpDir, err := os.MkdirTemp(tempDir, "bundle-extract-*")
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
+		return "", func() {}, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
+	// Create separate cache directory for containerd registry
+	// This keeps registry cache separate from bundle files
+	cacheDir, err := os.MkdirTemp(tempDir, "bundle-cache-*")
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+
+		return "", func() {}, fmt.Errorf("failed to create cache directory: %w", err)
+	}
+
+	// Cleanup function removes both directories
 	cleanup := func() {
 		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(cacheDir)
 	}
 
 	// Build registry options
-	// Use tmpDir for cache to avoid creating cache in current directory
 	registryOpts := []containerdregistry.RegistryOption{
 		containerdregistry.SkipTLSVerify(config.Insecure),
-		containerdregistry.WithCacheDir(tmpDir),
+		containerdregistry.WithCacheDir(cacheDir),
 	}
 
 	// Enable plaintext HTTP only for insecure connections (development/testing)
@@ -84,28 +97,23 @@ func extractImage(imageRef string, config RegistryConfig, tempDir string) (strin
 
 	reg, err := containerdregistry.NewRegistry(registryOpts...)
 	if err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("failed to create registry client: %w", err)
+		return "", cleanup, fmt.Errorf("failed to create registry client: %w", err)
 	}
 
+	// Ensure registry is destroyed on function exit
 	defer func() { _ = reg.Destroy() }()
 
 	ref := image.SimpleReference(imageRef)
 	if err := reg.Pull(ctx, ref); err != nil {
-		cleanup()
-
 		if config.Username == "" && config.Password == "" {
-			return "", nil, fmt.Errorf("failed to pull image %s: %w\nEnsure you have authenticated with 'docker login' or 'podman login'", imageRef, err)
+			return "", cleanup, fmt.Errorf("failed to pull image %s: %w\nEnsure you have authenticated with 'docker login' or 'podman login'", imageRef, err)
 		}
 
-		return "", nil, fmt.Errorf("failed to pull image %s: %w", imageRef, err)
+		return "", cleanup, fmt.Errorf("failed to pull image %s: %w", imageRef, err)
 	}
 
 	if err := reg.Unpack(ctx, ref, tmpDir); err != nil {
-		cleanup()
-
-		return "", nil, fmt.Errorf("failed to unpack image: %w", err)
+		return "", cleanup, fmt.Errorf("failed to unpack image: %w", err)
 	}
 
 	return tmpDir, cleanup, nil

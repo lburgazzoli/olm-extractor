@@ -10,6 +10,12 @@ var (
 		Kind:    "Service",
 	}
 
+	ServiceAccount = schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "ServiceAccount",
+	}
+
 	ConfigMap = schema.GroupVersionKind{
 		Group:   "",
 		Version: "v1",
@@ -66,10 +72,28 @@ var (
 		Version: "v1",
 		Kind:    "CustomResourceDefinition",
 	}
+
+	CustomResourceDefinitionV1Beta1 = schema.GroupVersionKind{
+		Group:   "apiextensions.k8s.io",
+		Version: "v1beta1",
+		Kind:    "CustomResourceDefinition",
+	}
 )
 
 // RBAC resources.
 var (
+	Role = schema.GroupVersionKind{
+		Group:   "rbac.authorization.k8s.io",
+		Version: "v1",
+		Kind:    "Role",
+	}
+
+	RoleBinding = schema.GroupVersionKind{
+		Group:   "rbac.authorization.k8s.io",
+		Version: "v1",
+		Kind:    "RoleBinding",
+	}
+
 	ClusterRole = schema.GroupVersionKind{
 		Group:   "rbac.authorization.k8s.io",
 		Version: "v1",
