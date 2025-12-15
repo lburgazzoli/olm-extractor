@@ -23,6 +23,7 @@ type Config struct {
 	Namespace   string                `mapstructure:"namespace"`
 	Include     []string              `mapstructure:"include"`
 	Exclude     []string              `mapstructure:"exclude"`
+	TempDir     string                `mapstructure:"temp-dir"`
 	CertManager certmanager.Config    `mapstructure:",squash"`
 	Registry    bundle.RegistryConfig `mapstructure:",squash"`
 }
@@ -99,6 +100,10 @@ const registryUsernameUsage = `Username for registry authentication`
 
 const registryPasswordUsage = `Password for registry authentication`
 
+const tempDirUsage = `Directory for temporary files and cache (defaults to system temp directory)`
+
+const tempDirPerms = 0750 // Directory permissions for temp directory
+
 func main() {
 	// Initialize viper for environment variable support
 	viper.SetEnvPrefix("BUNDLE_EXTRACT")
@@ -125,6 +130,13 @@ func main() {
 				return fmt.Errorf("invalid namespace: %w", err)
 			}
 
+			// Create temp directory if specified and doesn't exist
+			if cfg.TempDir != "" {
+				if err := os.MkdirAll(cfg.TempDir, tempDirPerms); err != nil {
+					return fmt.Errorf("failed to create temp-dir: %w", err)
+				}
+			}
+
 			return extractAndRender(input, cfg)
 		},
 	}
@@ -133,6 +145,7 @@ func main() {
 	rootCmd.Flags().StringP("namespace", "n", "", "Target namespace for installation (required)")
 	rootCmd.Flags().StringArray("include", []string{}, includeFlagUsage)
 	rootCmd.Flags().StringArray("exclude", []string{}, excludeFlagUsage)
+	rootCmd.Flags().String("temp-dir", "", tempDirUsage)
 	rootCmd.Flags().Bool("cert-manager-enabled", true, certManagerEnabledUsage)
 	rootCmd.Flags().String("cert-manager-issuer-name", "selfsigned-cluster-issuer", certManagerIssuerNameUsage)
 	rootCmd.Flags().String("cert-manager-issuer-kind", "ClusterIssuer", certManagerIssuerKindUsage)
@@ -155,7 +168,7 @@ func main() {
 }
 
 func extractAndRender(input string, cfg Config) error {
-	b, cleanup, err := bundle.Load(input, cfg.Registry)
+	b, cleanup, err := bundle.Load(input, cfg.Registry, cfg.TempDir)
 	if cleanup != nil {
 		defer cleanup()
 	}

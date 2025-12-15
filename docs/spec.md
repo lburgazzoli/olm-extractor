@@ -68,6 +68,7 @@ bundle-extract <bundle-path-or-image> --namespace <namespace>
 |----------|-------|-------------|---------|
 | `--include` | | jq expression to include resources (repeatable, acts as OR) | None |
 | `--exclude` | | jq expression to exclude resources (repeatable, acts as OR) | None |
+| `--temp-dir` | | Directory for temporary files and cache | System temp directory |
 | `--cert-manager-enabled` | | Enable cert-manager integration for webhook certificates | `true` |
 | `--cert-manager-issuer-name` | | Name of the cert-manager Issuer or ClusterIssuer for webhook certificates | `selfsigned-cluster-issuer` |
 | `--cert-manager-issuer-kind` | | Kind of cert-manager issuer: Issuer or ClusterIssuer | `ClusterIssuer` |
@@ -83,6 +84,7 @@ All flags can be configured using environment variables with the `BUNDLE_EXTRACT
 | Flag | Environment Variable | Example |
 |------|---------------------|---------|
 | `--namespace` | `BUNDLE_EXTRACT_NAMESPACE` | `export BUNDLE_EXTRACT_NAMESPACE=operators` |
+| `--temp-dir` | `BUNDLE_EXTRACT_TEMP_DIR` | `export BUNDLE_EXTRACT_TEMP_DIR=/mnt/fast-storage` |
 | `--cert-manager-enabled` | `BUNDLE_EXTRACT_CERT_MANAGER_ENABLED` | `export BUNDLE_EXTRACT_CERT_MANAGER_ENABLED=false` |
 | `--cert-manager-issuer-name` | `BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_NAME` | `export BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_NAME=my-issuer` |
 | `--cert-manager-issuer-kind` | `BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_KIND` | `export BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_KIND=Issuer` |

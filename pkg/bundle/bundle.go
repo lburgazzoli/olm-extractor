@@ -20,7 +20,8 @@ type RegistryConfig struct {
 
 // Load loads an OLM bundle from a directory path or container image reference.
 // Returns the bundle, a cleanup function (may be nil), and any error.
-func Load(input string, config RegistryConfig) (*manifests.Bundle, func(), error) {
+// tempDir specifies where temporary files should be created (empty string uses system default).
+func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundle, func(), error) {
 	info, err := os.Stat(input)
 	if err == nil && info.IsDir() {
 		bundle, err := manifests.GetBundleFromDir(input)
@@ -31,15 +32,17 @@ func Load(input string, config RegistryConfig) (*manifests.Bundle, func(), error
 		return bundle, nil, nil
 	}
 
-	return LoadFromImage(input, config)
+	return LoadFromImage(input, config, tempDir)
 }
 
 // LoadFromImage pulls a container image and extracts the OLM bundle from it.
 // Returns the bundle, a cleanup function to remove temp files, and any error.
-func LoadFromImage(imageRef string, config RegistryConfig) (*manifests.Bundle, func(), error) {
+// tempDir specifies where temporary files should be created (empty string uses system default).
+func LoadFromImage(imageRef string, config RegistryConfig, tempDir string) (*manifests.Bundle, func(), error) {
 	ctx := context.Background()
 
-	tmpDir, err := os.MkdirTemp("", "bundle-extract-*")
+	// If tempDir is empty, use system default (os.TempDir())
+	tmpDir, err := os.MkdirTemp(tempDir, "bundle-extract-*")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
