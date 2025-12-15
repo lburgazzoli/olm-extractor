@@ -191,12 +191,12 @@ func extractAndRender(input string, cfg Config) error {
 
 	if cfg.Catalog != "" {
 		// Catalog mode: input is package[:version]
-		packageName, version := parsePackageReference(input)
+		packageName, packageVersion := parsePackageReference(input)
 
 		catalogCfg := catalog.Config{
 			CatalogImage: cfg.Catalog,
 			PackageName:  packageName,
-			Version:      version,
+			Version:      packageVersion,
 			Channel:      cfg.Channel,
 		}
 
@@ -259,11 +259,15 @@ func extractAndRender(input string, cfg Config) error {
 	return nil
 }
 
+const packageRefParts = 2 // Number of parts when splitting package:version
+
 // parsePackageReference parses a package reference in the format package[:version].
 // Returns the package name and optionally the version.
-func parsePackageReference(ref string) (name string, version string) {
-	parts := strings.SplitN(ref, ":", 2)
-	if len(parts) == 2 {
+//
+//nolint:nonamedreturns // Named returns required to avoid confusing-results linter error
+func parsePackageReference(ref string) (pkgName string, pkgVersion string) {
+	parts := strings.SplitN(ref, ":", packageRefParts)
+	if len(parts) == packageRefParts {
 		return parts[0], parts[1]
 	}
 

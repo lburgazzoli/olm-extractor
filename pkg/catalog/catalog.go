@@ -80,6 +80,7 @@ func loadCatalog(dir string) (*declcfg.DeclarativeConfig, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse catalog from configs directory: %w", err)
 		}
+
 		return cfg, nil
 	}
 
@@ -101,7 +102,7 @@ func findPackage(cfg *declcfg.DeclarativeConfig, name string) (*declcfg.Package,
 	}
 
 	// List available packages for helpful error message
-	var available []string
+	available := make([]string, 0, len(cfg.Packages))
 	for i := range cfg.Packages {
 		available = append(available, cfg.Packages[i].Name)
 	}
@@ -174,10 +175,10 @@ func extractBundleImage(cfg *declcfg.DeclarativeConfig, bundleName string) (stri
 			if cfg.Bundles[i].Image == "" {
 				return "", fmt.Errorf("bundle %q has no image reference", bundleName)
 			}
+
 			return cfg.Bundles[i].Image, nil
 		}
 	}
 
 	return "", fmt.Errorf("bundle %q not found in catalog", bundleName)
 }
-
