@@ -18,33 +18,51 @@ type RegistryConfig struct {
 	Password string `mapstructure:"registry-password"`
 }
 
+// ResolveBundle resolves the input to a bundle directory path.
+// If input is a directory, returns it directly.
+// If input is a container image reference, pulls and extracts it to a temp directory.
+// Returns: directory path, cleanup function (may be nil), error.
+func ResolveBundle(input string, config RegistryConfig, tempDir string) (string, func(), error) {
+	info, err := os.Stat(input)
+	if err == nil && info.IsDir() {
+		// Input is already a directory, no cleanup needed
+		return input, nil, nil
+	}
+
+	// Input is an image reference, extract it
+	return extractImage(input, config, tempDir)
+}
+
 // Load loads an OLM bundle from a directory path or container image reference.
 // Returns the bundle, a cleanup function (may be nil), and any error.
 // tempDir specifies where temporary files should be created (empty string uses system default).
 func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundle, func(), error) {
-	info, err := os.Stat(input)
-	if err == nil && info.IsDir() {
-		bundle, err := manifests.GetBundleFromDir(input)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load bundle from directory: %w", err)
-		}
-
-		return bundle, nil, nil
+	dir, cleanup, err := ResolveBundle(input, config, tempDir)
+	if err != nil {
+		return nil, cleanup, err
 	}
 
-	return LoadFromImage(input, config, tempDir)
+	bundle, err := manifests.GetBundleFromDir(dir)
+	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
+
+		return nil, nil, fmt.Errorf("failed to load bundle from directory: %w", err)
+	}
+
+	return bundle, cleanup, nil
 }
 
-// LoadFromImage pulls a container image and extracts the OLM bundle from it.
-// Returns the bundle, a cleanup function to remove temp files, and any error.
-// tempDir specifies where temporary files should be created (empty string uses system default).
-func LoadFromImage(imageRef string, config RegistryConfig, tempDir string) (*manifests.Bundle, func(), error) {
+// extractImage pulls a container image and extracts it to a temporary directory.
+// Returns: directory path, cleanup function, error.
+func extractImage(imageRef string, config RegistryConfig, tempDir string) (string, func(), error) {
 	ctx := context.Background()
 
 	// If tempDir is empty, use system default (os.TempDir())
 	tmpDir, err := os.MkdirTemp(tempDir, "bundle-extract-*")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create temp directory: %w", err)
+		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
 	cleanup := func() {
@@ -72,7 +90,7 @@ func LoadFromImage(imageRef string, config RegistryConfig, tempDir string) (*man
 	if err != nil {
 		cleanup()
 
-		return nil, nil, fmt.Errorf("failed to create registry client: %w", err)
+		return "", nil, fmt.Errorf("failed to create registry client: %w", err)
 	}
 
 	defer func() { _ = reg.Destroy() }()
@@ -82,24 +100,17 @@ func LoadFromImage(imageRef string, config RegistryConfig, tempDir string) (*man
 		cleanup()
 
 		if config.Username == "" && config.Password == "" {
-			return nil, nil, fmt.Errorf("failed to pull image %s: %w\nEnsure you have authenticated with 'docker login' or 'podman login'", imageRef, err)
+			return "", nil, fmt.Errorf("failed to pull image %s: %w\nEnsure you have authenticated with 'docker login' or 'podman login'", imageRef, err)
 		}
 
-		return nil, nil, fmt.Errorf("failed to pull image %s: %w", imageRef, err)
+		return "", nil, fmt.Errorf("failed to pull image %s: %w", imageRef, err)
 	}
 
 	if err := reg.Unpack(ctx, ref, tmpDir); err != nil {
 		cleanup()
 
-		return nil, nil, fmt.Errorf("failed to unpack image: %w", err)
+		return "", nil, fmt.Errorf("failed to unpack image: %w", err)
 	}
 
-	bundle, err := manifests.GetBundleFromDir(tmpDir)
-	if err != nil {
-		cleanup()
-
-		return nil, nil, fmt.Errorf("failed to load bundle from extracted image: %w", err)
-	}
-
-	return bundle, cleanup, nil
+	return tmpDir, cleanup, nil
 }
