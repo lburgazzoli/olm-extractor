@@ -18,7 +18,8 @@ bundle-extract quay.io/example/operator-bundle:v1.0.0 -n operators | kubectl app
 
 1. **Input Sources**
    - Local bundle directory path (e.g., `./bundle`)
-   - Container image reference (e.g., `quay.io/example/operator-bundle:v1.0.0`)
+   - Bundle container image reference (e.g., `quay.io/example/operator-bundle:v1.0.0`)
+   - Catalog container image with package name (requires `--catalog` flag)
 
 2. **Output Format**
    - Valid Kubernetes YAML manifests
@@ -52,8 +53,14 @@ bundle-extract quay.io/example/operator-bundle:v1.0.0 -n operators | kubectl app
 
 ### Command Syntax
 
+**Bundle Mode (Direct):**
 ```bash
 bundle-extract <bundle-path-or-image> --namespace <namespace>
+```
+
+**Catalog Mode:**
+```bash
+bundle-extract --catalog <catalog-image> <package>[:version] --namespace <namespace>
 ```
 
 ### Required Arguments
@@ -69,6 +76,8 @@ bundle-extract <bundle-path-or-image> --namespace <namespace>
 | `--include` | | jq expression to include resources (repeatable, acts as OR) | None |
 | `--exclude` | | jq expression to exclude resources (repeatable, acts as OR) | None |
 | `--temp-dir` | | Directory for temporary files and cache | System temp directory |
+| `--catalog` | | Catalog image to resolve bundle from (enables catalog mode) | None |
+| `--channel` | | Channel to use when resolving from catalog | Package's defaultChannel |
 | `--cert-manager-enabled` | | Enable cert-manager integration for webhook certificates | `true` |
 | `--cert-manager-issuer-name` | | Name of the cert-manager Issuer or ClusterIssuer for webhook certificates | `selfsigned-cluster-issuer` |
 | `--cert-manager-issuer-kind` | | Kind of cert-manager issuer: Issuer or ClusterIssuer | `ClusterIssuer` |
@@ -138,6 +147,73 @@ For registries with self-signed certificates or HTTP-only registries (developmen
 
 ```bash
 bundle-extract --registry-insecure localhost:5000/my-operator:latest -n operators | kubectl apply -f -
+```
+
+### File-Based Catalog (FBC) Support
+
+The tool supports extracting bundles from OLM catalog images by automatically resolving package references to bundle images. This allows you to extract operators from catalog indices without manually finding the bundle image reference.
+
+#### How Catalog Mode Works
+
+1. **Pull the catalog image** specified by `--catalog`
+2. **Parse the File-Based Catalog (FBC)** declarative config
+3. **Find the package** by name (first positional argument)
+4. **Resolve to a bundle image** using the specified version or latest in channel
+5. **Extract and process** the bundle normally
+
+#### Usage Examples
+
+**Extract latest version of a package:**
+
+```bash
+# Uses the package's defaultChannel and latest version in that channel
+bundle-extract --catalog quay.io/operatorhubio/catalog:latest prometheus -n monitoring | kubectl apply -f -
+```
+
+**Extract specific version:**
+
+```bash
+# Specify version after package name with colon separator
+bundle-extract --catalog registry.redhat.io/redhat/certified-operator-index:v4.14 \
+  ack-acm-controller:0.0.10 -n operators | kubectl apply -f -
+```
+
+**Extract from specific channel:**
+
+```bash
+# Override the defaultChannel with --channel flag
+bundle-extract --catalog quay.io/operatorhubio/catalog:latest \
+  --channel stable postgresql-operator -n databases | kubectl apply -f -
+```
+
+**Combine with registry authentication:**
+
+```bash
+# Catalog authentication uses the same registry flags
+bundle-extract --catalog registry.example.com/private-catalog:latest \
+  --registry-username myuser --registry-password mypass \
+  my-operator:1.2.3 -n operators | kubectl apply -f -
+```
+
+#### Package Reference Format
+
+The first positional argument in catalog mode accepts:
+- **Package name only:** `my-operator` - resolves to latest version in defaultChannel
+- **Package with version:** `my-operator:1.2.3` - resolves to specific version
+
+#### Error Handling
+
+The tool provides helpful error messages when resolution fails:
+
+- **Package not found:** Lists available packages in the catalog
+- **Version not found:** Lists available versions for the package in the channel
+- **Channel not found:** Lists available channels for the package
+- **No defaultChannel:** Requires explicit `--channel` flag
+
+**Example error output:**
+
+```
+Error: version "1.0.0" not found for package "prometheus" in channel "stable" (available versions: ["1.1.0", "1.2.0", "1.2.1"])
 ```
 
 ### Webhook Certificate Management

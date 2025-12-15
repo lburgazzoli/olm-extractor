@@ -28,6 +28,11 @@ type BundleResource struct {
 	registry *containerdregistry.Registry
 }
 
+// Dir returns the directory path containing the unpacked bundle.
+func (br *BundleResource) Dir() string {
+	return br.dir
+}
+
 // Cleanup releases all resources held by the BundleResource.
 // It is idempotent and safe to call on zero-value or partially initialized resources.
 func (br *BundleResource) Cleanup() {
@@ -73,13 +78,14 @@ func resolve(input string, config RegistryConfig, tempDir string) (BundleResourc
 	}
 
 	// Input is an image reference, extract it
-	return extractImage(input, config, tempDir)
+	return ExtractImage(input, config, tempDir)
 }
 
-// extractImage pulls a container image and extracts it to a temporary directory.
+// ExtractImage pulls a container image and extracts it to a temporary directory.
 // Returns a BundleResource containing all created resources.
 // On error, returns a partial BundleResource that is safe to clean up.
-func extractImage(imageRef string, config RegistryConfig, tempDir string) (BundleResource, error) {
+// This is exported for use by the catalog package.
+func ExtractImage(imageRef string, config RegistryConfig, tempDir string) (BundleResource, error) {
 	ctx := context.Background()
 	resource := BundleResource{}
 

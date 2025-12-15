@@ -7,6 +7,7 @@ import (
 
 	"github.com/lburgazzoli/olm-extractor/internal/version"
 	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
+	"github.com/lburgazzoli/olm-extractor/pkg/catalog"
 	"github.com/lburgazzoli/olm-extractor/pkg/certmanager"
 	"github.com/lburgazzoli/olm-extractor/pkg/extract"
 	"github.com/lburgazzoli/olm-extractor/pkg/filter"
@@ -24,6 +25,8 @@ type Config struct {
 	Include     []string              `mapstructure:"include"`
 	Exclude     []string              `mapstructure:"exclude"`
 	TempDir     string                `mapstructure:"temp-dir"`
+	Catalog     string                `mapstructure:"catalog"`
+	Channel     string                `mapstructure:"channel"`
 	CertManager certmanager.Config    `mapstructure:",squash"`
 	Registry    bundle.RegistryConfig `mapstructure:",squash"`
 }
@@ -48,8 +51,17 @@ For example, --namespace can be set via BUNDLE_EXTRACT_NAMESPACE.`
 const exampleUsage = `  # Extract all resources from a bundle directory
   bundle-extract -n my-namespace ./path/to/bundle
 
-  # Extract from a container image
+  # Extract from a bundle container image
   bundle-extract -n my-namespace quay.io/example/operator-bundle:v1.0.0
+
+  # Extract from a catalog (latest version in default channel)
+  bundle-extract --catalog quay.io/catalog:latest ack-acm-controller -n my-namespace
+
+  # Extract from a catalog (specific version)
+  bundle-extract --catalog quay.io/catalog:latest ack-acm-controller:0.0.10 -n my-namespace
+
+  # Extract from a catalog (specific channel)
+  bundle-extract --catalog quay.io/catalog:latest --channel stable ack-acm-controller -n my-namespace
 
   # Extract without cert-manager integration
   bundle-extract -n my-namespace --cert-manager-enabled=false ./bundle
@@ -102,6 +114,10 @@ const registryPasswordUsage = `Password for registry authentication`
 
 const tempDirUsage = `Directory for temporary files and cache (defaults to system temp directory)`
 
+const catalogUsage = `Catalog image to resolve bundle from (enables catalog mode). When specified, the first positional argument becomes <package>[:version] instead of a bundle image.`
+
+const channelUsage = `Channel to use when resolving from catalog (defaults to package's defaultChannel)`
+
 const tempDirPerms = 0750 // Directory permissions for temp directory
 
 func main() {
@@ -146,6 +162,8 @@ func main() {
 	rootCmd.Flags().StringArray("include", []string{}, includeFlagUsage)
 	rootCmd.Flags().StringArray("exclude", []string{}, excludeFlagUsage)
 	rootCmd.Flags().String("temp-dir", "", tempDirUsage)
+	rootCmd.Flags().String("catalog", "", catalogUsage)
+	rootCmd.Flags().String("channel", "", channelUsage)
 	rootCmd.Flags().Bool("cert-manager-enabled", true, certManagerEnabledUsage)
 	rootCmd.Flags().String("cert-manager-issuer-name", "selfsigned-cluster-issuer", certManagerIssuerNameUsage)
 	rootCmd.Flags().String("cert-manager-issuer-kind", "ClusterIssuer", certManagerIssuerKindUsage)
@@ -168,7 +186,31 @@ func main() {
 }
 
 func extractAndRender(input string, cfg Config) error {
-	b, err := bundle.Load(input, cfg.Registry, cfg.TempDir)
+	var bundleImageOrDir string
+
+	if cfg.Catalog != "" {
+		// Catalog mode: input is package[:version]
+		packageName, version := parsePackageReference(input)
+
+		catalogCfg := catalog.Config{
+			CatalogImage: cfg.Catalog,
+			PackageName:  packageName,
+			Version:      version,
+			Channel:      cfg.Channel,
+		}
+
+		bundleImage, err := catalog.ResolveBundleImage(catalogCfg, cfg.Registry, cfg.TempDir)
+		if err != nil {
+			return fmt.Errorf("failed to resolve bundle from catalog: %w", err)
+		}
+
+		bundleImageOrDir = bundleImage
+	} else {
+		// Direct bundle mode (existing behavior)
+		bundleImageOrDir = input
+	}
+
+	b, err := bundle.Load(bundleImageOrDir, cfg.Registry, cfg.TempDir)
 	if err != nil {
 		return fmt.Errorf("failed to load bundle: %w", err)
 	}
@@ -214,4 +256,15 @@ func extractAndRender(input string, cfg Config) error {
 	}
 
 	return nil
+}
+
+// parsePackageReference parses a package reference in the format package[:version].
+// Returns the package name and optionally the version.
+func parsePackageReference(ref string) (name string, version string) {
+	parts := strings.SplitN(ref, ":", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+
+	return parts[0], ""
 }
