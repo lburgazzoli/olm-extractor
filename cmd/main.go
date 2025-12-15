@@ -127,12 +127,13 @@ func main() {
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
 	rootCmd := &cobra.Command{
-		Use:     "bundle-extract <bundle-path-or-image>",
-		Short:   "Extract Kubernetes manifests from an OLM bundle",
-		Long:    longDescription,
-		Example: exampleUsage,
-		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version.Version, version.Commit, version.Date),
-		Args:    cobra.ExactArgs(1),
+		Use:          "bundle-extract <bundle-path-or-image>",
+		Short:        "Extract Kubernetes manifests from an OLM bundle",
+		Long:         longDescription,
+		Example:      exampleUsage,
+		Version:      fmt.Sprintf("%s (commit: %s, built: %s)", version.Version, version.Commit, version.Date),
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
 		RunE: func(_ *cobra.Command, args []string) error {
 			input := args[0]
 
