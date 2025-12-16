@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
 	"github.com/operator-framework/operator-registry/alpha/declcfg"
+
+	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
 )
 
 // Config holds catalog resolution configuration.

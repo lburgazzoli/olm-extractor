@@ -3,9 +3,9 @@ package filter_test
 import (
 	"testing"
 
-	"github.com/lburgazzoli/olm-extractor/pkg/filter"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/lburgazzoli/olm-extractor/pkg/filter"
 
 	. "github.com/onsi/gomega"
 )

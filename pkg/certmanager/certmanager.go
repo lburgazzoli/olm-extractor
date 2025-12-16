@@ -29,11 +29,12 @@ import (
 
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
-	"github.com/lburgazzoli/olm-extractor/pkg/kube"
-	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/lburgazzoli/olm-extractor/pkg/kube"
+	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 )
 
 const (

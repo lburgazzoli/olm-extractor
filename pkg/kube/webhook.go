@@ -3,10 +3,10 @@ package kube
 import (
 	"fmt"
 
-	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
-
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 )
 
 // WebhookInfo contains extracted service information from webhook configurations.

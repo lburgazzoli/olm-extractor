@@ -3,9 +3,9 @@ package kube_test
 import (
 	"testing"
 
-	"github.com/lburgazzoli/olm-extractor/pkg/kube"
-
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 
 	. "github.com/onsi/gomega"
 )

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -14,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+
+	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 )
 
 // ToUnstructured converts a typed Kubernetes object to an Unstructured object.

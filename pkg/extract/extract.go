@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/lburgazzoli/olm-extractor/pkg/kube"
-	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 	"github.com/operator-framework/api/pkg/manifests"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/controller/registry/resolver"
@@ -17,6 +15,9 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/lburgazzoli/olm-extractor/pkg/kube"
+	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 )
 
 // Manifests extracts all Kubernetes manifests from an OLM bundle for the given namespace.

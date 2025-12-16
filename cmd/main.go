@@ -5,6 +5,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/lburgazzoli/olm-extractor/internal/version"
 	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
 	"github.com/lburgazzoli/olm-extractor/pkg/catalog"
@@ -13,10 +18,6 @@ import (
 	"github.com/lburgazzoli/olm-extractor/pkg/filter"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/render"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
-
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // Config holds all configuration for the application.
