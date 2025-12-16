@@ -8,10 +8,15 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Build flags
+# Build flags for go build
 LDFLAGS = -X 'github.com/lburgazzoli/olm-extractor/internal/version.Version=$(VERSION)' \
           -X 'github.com/lburgazzoli/olm-extractor/internal/version.Commit=$(COMMIT)' \
           -X 'github.com/lburgazzoli/olm-extractor/internal/version.Date=$(DATE)'
+
+# Build flags for ko (GOFLAGS format)
+KO_LDFLAGS = -X=github.com/lburgazzoli/olm-extractor/internal/version.Version=$(VERSION) \
+             -X=github.com/lburgazzoli/olm-extractor/internal/version.Commit=$(COMMIT) \
+             -X=github.com/lburgazzoli/olm-extractor/internal/version.Date=$(DATE)
 
 # Linter configuration
 LINT_TIMEOUT := 10m
@@ -44,12 +49,11 @@ build:
 .PHONY: publish
 publish:
 	@echo "Building and pushing container image to $(KO_DOCKER_REPO):$(KO_TAGS)"
-	@KO_DOCKER_REPO=$(KO_DOCKER_REPO) \
+	@KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-ldflags=$(KO_LDFLAGS)" \
 		$(KO) build ./cmd \
 		--bare \
 		--tags=$(KO_TAGS) \
-		--platform=$(KO_PLATFORMS) \
-		-ldflags "$(LDFLAGS)"
+		--platform=$(KO_PLATFORMS)
 
 # Run the CLI
 .PHONY: run
