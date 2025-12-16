@@ -16,11 +16,19 @@ LDFLAGS = -X 'github.com/lburgazzoli/olm-extractor/internal/version.Version=$(VE
 # Linter configuration
 LINT_TIMEOUT := 10m
 
+# Container registry configuration
+CONTAINER_REGISTRY ?= quay.io
+KO_DOCKER_REPO ?= $(CONTAINER_REGISTRY)/lburgazzoli/olm-extractor
+KO_PLATFORMS ?= linux/amd64,linux/arm64
+KO_TAGS ?= $(VERSION)
+
 ## Tools
 GOLANGCI_VERSION ?= v2.7.2
 GOLANGCI ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 GOVULNCHECK_VERSION ?= latest
 GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+KO_VERSION ?= latest
+KO ?= go run github.com/google/ko@$(KO_VERSION)
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -31,6 +39,16 @@ SHELL = /usr/bin/env bash -o pipefail
 .PHONY: build
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) cmd/main.go
+
+# Build and push container image
+.PHONY: publish
+publish:
+	@echo "Building and pushing container image to $(KO_DOCKER_REPO):$(KO_TAGS)"
+	@KO_DOCKER_REPO=$(KO_DOCKER_REPO) $(KO) build ./cmd \
+		--bare \
+		--tags=$(KO_TAGS) \
+		--platform=$(KO_PLATFORMS) \
+		--ldflags="$(LDFLAGS)"
 
 # Run the CLI
 .PHONY: run
@@ -84,6 +102,7 @@ test:
 help:
 	@echo "Available targets:"
 	@echo "  build       - Build the bundle-extract binary"
+	@echo "  publish     - Build and push container image using ko"
 	@echo "  run         - Run the CLI"
 	@echo "  tidy        - Tidy up Go module dependencies"
 	@echo "  clean       - Remove build artifacts and test cache"
