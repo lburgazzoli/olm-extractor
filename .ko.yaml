@@ -1,0 +1,13 @@
+# Ko build configuration
+# See: https://ko.build/configuration/
+
+builds:
+  - id: olm-extractor
+    main: ./cmd
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -X github.com/lburgazzoli/olm-extractor/internal/version.Version={{.Env.VERSION}}
+      - -X github.com/lburgazzoli/olm-extractor/internal/version.Commit={{.Env.COMMIT}}
+      - -X github.com/lburgazzoli/olm-extractor/internal/version.Date={{.Env.DATE}}
+
