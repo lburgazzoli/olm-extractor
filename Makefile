@@ -44,10 +44,12 @@ build:
 .PHONY: publish
 publish:
 	@echo "Building and pushing container image to $(KO_DOCKER_REPO):$(KO_TAGS)"
-	@KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-ldflags=$(LDFLAGS)" $(KO) build ./cmd \
+	@KO_DOCKER_REPO=$(KO_DOCKER_REPO) \
+		$(KO) build ./cmd \
 		--bare \
 		--tags=$(KO_TAGS) \
-		--platform=$(KO_PLATFORMS)
+		--platform=$(KO_PLATFORMS) \
+		-ldflags "$(LDFLAGS)"
 
 # Run the CLI
 .PHONY: run
