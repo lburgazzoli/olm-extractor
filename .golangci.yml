@@ -109,7 +109,7 @@ formatters:
         - blank
         - prefix(k8s.io)
         - blank
-        - prefix(github.com/lburgazzoli/odh-cli)
+        - prefix(github.com/lburgazzoli/olm-extractor)
         - blank
         - dot
       custom-order: true
