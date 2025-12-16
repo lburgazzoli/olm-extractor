@@ -108,7 +108,7 @@ Command-line flags take precedence over environment variables.
 
 ### Container Registry Authentication
 
-The tool automatically uses credentials from `~/.docker/config.json` when pulling bundle images from container registries. 
+The tool automatically uses credentials from `~/.docker/config.json` when pulling bundle images from container registries.
 
 **Option 1: Using existing Docker/Podman credentials**
 
@@ -123,30 +123,61 @@ podman login registry.example.com
 bundle-extract registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
 ```
 
-**Option 2: Using command-line flags**
+**Option 2: Using custom auth file**
+
+The `--registry-auth-file` flag accepts either a directory or a file path:
 
 ```bash
-# Provide credentials directly
-bundle-extract --registry-username myuser --registry-password mypass \
+# Point to a directory containing config.json
+bundle-extract --registry-auth-file ~/.docker \
   registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
 
-# Use custom auth file
-bundle-extract --registry-auth-file /path/to/config.json \
+# Or point directly to the config.json file
+bundle-extract --registry-auth-file ~/.docker/config.json \
   registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
 ```
 
 **Option 3: Using environment variables**
 
 ```bash
+# Using username and password (Note: see limitations below)
 export BUNDLE_EXTRACT_REGISTRY_USERNAME=myuser
 export BUNDLE_EXTRACT_REGISTRY_PASSWORD=mypass
 bundle-extract registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
+
+# Or specify a custom auth file path
+export BUNDLE_EXTRACT_REGISTRY_AUTH_FILE=/path/to/docker/config.json
+bundle-extract registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
 ```
+
+**Insecure Registries**
 
 For registries with self-signed certificates or HTTP-only registries (development/testing), use the `--registry-insecure` flag:
 
 ```bash
 bundle-extract --registry-insecure localhost:5000/my-operator:latest -n operators | kubectl apply -f -
+```
+
+#### macOS with Docker Desktop Limitation
+
+On macOS with Docker Desktop, credentials are stored in a credential helper (`docker-credential-desktop`) rather than directly in `config.json`. The underlying `containerd` library may not properly execute credential helpers, which can cause authentication to fail even when `docker pull` works.
+
+**Workaround:** Store credentials inline in `config.json` by logging in with `--store-plaintext-passwords`:
+
+```bash
+# SECURITY WARNING: This stores credentials in plaintext
+docker login --store-plaintext-passwords registry.redhat.io
+
+# Then the tool should work
+bundle-extract registry.redhat.io/my-operator:v1.0.0 -n operators | kubectl apply -f -
+```
+
+Alternatively, use the containerized version which doesn't have this limitation:
+
+```bash
+docker run --rm -v ~/.docker:/root/.docker:ro \
+  quay.io/lburgazzoli/olm-extractor:main \
+  registry.redhat.io/my-operator:v1.0.0 -n operators | kubectl apply -f -
 ```
 
 ### File-Based Catalog (FBC) Support

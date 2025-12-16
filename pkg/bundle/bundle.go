@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/user"
+	"path/filepath"
 
 	"github.com/operator-framework/api/pkg/manifests"
 	"github.com/operator-framework/operator-registry/pkg/image"
@@ -31,6 +33,46 @@ type BundleResource struct {
 // Dir returns the directory path containing the unpacked bundle.
 func (br *BundleResource) Dir() string {
 	return br.dir
+}
+
+// resolveDockerConfigDir resolves the Docker config directory for DOCKER_CONFIG.
+// Returns the directory path that should be set as DOCKER_CONFIG environment variable.
+// Returns empty string if no auth file is specified (use default behavior).
+func resolveDockerConfigDir(authFile string) (string, error) {
+	if authFile == "" {
+		// No auth file specified, let containerd use default
+		// Try to set default to ~/.docker
+		usr, err := user.Current()
+		if err != nil {
+			// Can't get home dir, return empty to use containerd's default
+			return "", nil
+		}
+
+		return filepath.Join(usr.HomeDir, ".docker"), nil
+	}
+
+	// Expand ~ to home directory
+	if len(authFile) >= 2 && authFile[:2] == "~/" {
+		usr, err := user.Current()
+		if err != nil {
+			return "", fmt.Errorf("failed to get current user: %w", err)
+		}
+		authFile = filepath.Join(usr.HomeDir, authFile[2:])
+	}
+
+	// Check if it's a file or directory
+	info, err := os.Stat(authFile)
+	if err != nil {
+		return "", fmt.Errorf("auth file/directory does not exist: %w", err)
+	}
+
+	if info.IsDir() {
+		// It's a directory, use it directly
+		return authFile, nil
+	}
+
+	// It's a file (e.g., config.json), DOCKER_CONFIG must point to the directory
+	return filepath.Dir(authFile), nil
 }
 
 // Cleanup releases all resources held by the BundleResource.
@@ -116,9 +158,14 @@ func ExtractImage(imageRef string, config RegistryConfig, tempDir string) (Bundl
 		registryOpts = append(registryOpts, containerdregistry.WithPlainHTTP(true))
 	}
 
-	// Use custom auth file if specified
-	if config.AuthFile != "" {
-		_ = os.Setenv("DOCKER_CONFIG", config.AuthFile)
+	// Set DOCKER_CONFIG environment variable for authentication
+	// It must point to a directory containing config.json, not the file itself
+	dockerConfigDir, err := resolveDockerConfigDir(config.AuthFile)
+	if err != nil {
+		return resource, fmt.Errorf("failed to resolve Docker config directory: %w", err)
+	}
+	if dockerConfigDir != "" {
+		_ = os.Setenv("DOCKER_CONFIG", dockerConfigDir)
 	}
 
 	reg, err := containerdregistry.NewRegistry(registryOpts...)
