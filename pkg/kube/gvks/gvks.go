@@ -191,6 +191,15 @@ var (
 	}
 )
 
+// OLM resources.
+var (
+	ClusterServiceVersion = schema.GroupVersionKind{
+		Group:   "operators.coreos.com",
+		Version: "v1alpha1",
+		Kind:    "ClusterServiceVersion",
+	}
+)
+
 // ClusterScoped contains all cluster-scoped resource GVKs.
 var ClusterScoped = map[schema.GroupVersionKind]bool{
 	// Core v1

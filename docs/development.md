@@ -105,6 +105,34 @@ Test packages:
 | `gopkg.in/yaml.v3` | YAML encoding with multi-doc support |
 | `github.com/onsi/gomega` | Test assertions |
 
+## Coding Guidelines
+
+### Kubernetes Resource Types
+
+When working with Kubernetes resource types (GroupVersionKind):
+
+- **Always use constants from `pkg/kube/gvks/gvks.go`** instead of hardcoded strings
+- **Compare full GVK structs** rather than just the `.Kind` field for accuracy
+- Add new resource types to the `gvks` package when needed
+
+**Good:**
+```go
+switch gvk {
+case gvks.Deployment:
+    // handle deployment
+case gvks.Service:
+    // handle service
+}
+```
+
+**Bad:**
+```go
+switch gvk.Kind {
+case "Deployment":  // Don't hardcode strings
+    // handle deployment
+}
+```
+
 ## Linting
 
 Uses golangci-lint v2 with configuration in `.golangci.yml`. Key enabled linters:

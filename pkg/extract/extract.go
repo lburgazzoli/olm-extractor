@@ -3,6 +3,7 @@ package extract
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
@@ -339,8 +340,8 @@ func OtherResources(bundle *manifests.Bundle, namespace string) []runtime.Object
 		gvk := obj.GetObjectKind().GroupVersionKind()
 
 		// Skip OLM-specific resources and CRDs (already handled).
-		switch gvk.Kind {
-		case "ClusterServiceVersion", "CustomResourceDefinition":
+		switch gvk {
+		case gvks.ClusterServiceVersion, gvks.CustomResourceDefinition, gvks.CustomResourceDefinitionV1Beta1:
 			continue
 		}
 
@@ -480,15 +481,10 @@ func sortKubernetesResources(objects []runtime.Object) []runtime.Object {
 	sorted := make([]runtime.Object, len(objects))
 	copy(sorted, objects)
 
-	// Sort using priority function (bubble sort)
-	n := len(sorted)
-	for i := range n - 1 {
-		for j := i + 1; j < n; j++ {
-			if getResourcePriority(sorted[i]) > getResourcePriority(sorted[j]) {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
+	// Sort by priority (lower numbers first)
+	sort.Slice(sorted, func(i int, j int) bool {
+		return getResourcePriority(sorted[i]) < getResourcePriority(sorted[j])
+	})
 
 	return sorted
 }
@@ -498,28 +494,28 @@ func sortKubernetesResources(objects []runtime.Object) []runtime.Object {
 func getResourcePriority(obj runtime.Object) int {
 	gvk := obj.GetObjectKind().GroupVersionKind()
 
-	switch gvk.Kind {
-	case "Namespace":
+	switch gvk {
+	case gvks.Namespace:
 		return priorityNamespace
-	case "CustomResourceDefinition":
+	case gvks.CustomResourceDefinition, gvks.CustomResourceDefinitionV1Beta1:
 		return priorityCRD
-	case "ServiceAccount":
+	case gvks.ServiceAccount:
 		return priorityServiceAccount
-	case "Role":
+	case gvks.Role:
 		return priorityRole
-	case "RoleBinding":
+	case gvks.RoleBinding:
 		return priorityRoleBinding
-	case "ClusterRole":
+	case gvks.ClusterRole:
 		return priorityClusterRole
-	case "ClusterRoleBinding":
+	case gvks.ClusterRoleBinding:
 		return priorityClusterRoleBinding
-	case "Deployment":
+	case gvks.Deployment:
 		return priorityDeployment
-	case "Service":
+	case gvks.Service:
 		return priorityService
-	case "Certificate":
+	case gvks.Certificate:
 		return priorityCertificate
-	case "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration":
+	case gvks.ValidatingWebhookConfiguration, gvks.MutatingWebhookConfiguration:
 		return priorityWebhook
 	default:
 		return priorityOther
