@@ -13,10 +13,8 @@ LDFLAGS = -X 'github.com/lburgazzoli/olm-extractor/internal/version.Version=$(VE
           -X 'github.com/lburgazzoli/olm-extractor/internal/version.Commit=$(COMMIT)' \
           -X 'github.com/lburgazzoli/olm-extractor/internal/version.Date=$(DATE)'
 
-# Build flags for ko (GOFLAGS format)
-KO_LDFLAGS = -X=github.com/lburgazzoli/olm-extractor/internal/version.Version=$(VERSION) \
-             -X=github.com/lburgazzoli/olm-extractor/internal/version.Commit=$(COMMIT) \
-             -X=github.com/lburgazzoli/olm-extractor/internal/version.Date=$(DATE)
+# Build flags for ko (GOFLAGS format - must be single line)
+KO_LDFLAGS = -X=github.com/lburgazzoli/olm-extractor/internal/version.Version=$(VERSION) -X=github.com/lburgazzoli/olm-extractor/internal/version.Commit=$(COMMIT) -X=github.com/lburgazzoli/olm-extractor/internal/version.Date=$(DATE)
 
 # Linter configuration
 LINT_TIMEOUT := 10m
