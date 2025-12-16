@@ -18,19 +18,24 @@ type Config struct {
 	Channel      string // Optional, defaults to package's defaultChannel
 }
 
+// getCatalogPathPrefixes returns the path prefixes for catalog FBC format.
+func getCatalogPathPrefixes() []string {
+	return []string{"/configs/"}
+}
+
 // ResolveBundleImage resolves a package reference to a bundle image reference.
 // It pulls the catalog image, parses the FBC format, finds the requested package/version,
 // and returns the bundle image reference.
 func ResolveBundleImage(config Config, registryConfig bundle.RegistryConfig, tempDir string) (string, error) {
-	// Pull and extract catalog image
-	resource, err := bundle.ExtractImage(config.CatalogImage, registryConfig, tempDir)
+	// Pull and extract catalog image with catalog-specific path prefixes
+	bundleResource, err := bundle.ExtractImage(config.CatalogImage, registryConfig, tempDir, getCatalogPathPrefixes())
 	if err != nil {
 		return "", fmt.Errorf("failed to extract catalog image: %w", err)
 	}
-	defer resource.Cleanup()
+	defer bundleResource.Cleanup()
 
 	// Load FBC from extracted directory
-	catalog, err := loadCatalog(resource.Dir())
+	catalog, err := loadCatalog(bundleResource.Dir())
 	if err != nil {
 		return "", fmt.Errorf("failed to load catalog: %w", err)
 	}
