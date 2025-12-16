@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	github.com/cert-manager/cert-manager v1.19.2
 	github.com/itchyny/gojq v0.12.18
-	github.com/onsi/gomega v1.38.2
+	github.com/onsi/gomega v1.38.3
 	github.com/operator-framework/api v0.37.0
 	github.com/operator-framework/operator-lifecycle-manager v0.38.0
 	github.com/operator-framework/operator-registry v1.61.0
