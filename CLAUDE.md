@@ -11,7 +11,7 @@ This file provides context for AI assistants working with this codebase.
 All authoritative project information is maintained in the `docs/` folder. These documents serve as the constitution of this project:
 
 - [`docs/spec.md`](docs/spec.md) - Complete project specification, requirements, and technical implementation
-- [`docs/development.md`](docs/development.md) - Development guide, build commands, and project structure
+- [`docs/development.md`](docs/development.md) - Development guide, build commands, project structure, and **Definition of Done**
 - [`docs/webhook-certificates.md`](docs/webhook-certificates.md) - Webhook certificate resolution and configuration details
 
 **When working on this project, always refer to these documentation files for accurate information about requirements, architecture, and implementation details.**

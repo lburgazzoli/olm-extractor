@@ -5,6 +5,16 @@
 - Go 1.21+
 - Make
 
+## Definition of Done
+
+A feature, function, or code change is considered **complete** only when:
+
+1. **All tests pass**: `make test` exits with status 0
+2. **All checks pass**: `make check` (linting + vulnerability scanning) exits with status 0
+3. Code is committed with a clear, descriptive commit message
+
+**Never consider work finished until both `make test` and `make check` pass successfully.**
+
 ## Build Commands
 
 ```bash
