@@ -58,6 +58,10 @@ func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, er
 	otherObjects := OtherResources(bundle, namespace)
 	objects = append(objects, otherObjects...)
 
+	// Normalize OLM-generated resource names to be simple and consistent.
+	// This strips random suffixes and updates all cross-references.
+	objects = normalizeResourceNames(objects)
+
 	// Sort resources by priority for proper kubectl apply order.
 	objects = sortKubernetesResources(objects)
 

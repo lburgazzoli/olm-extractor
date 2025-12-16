@@ -1,33 +1,34 @@
 package bundle
 
 import (
+	"archive/tar"
 	"context"
 	"fmt"
+	"io"
 	"os"
-	"os/user"
 	"path/filepath"
+	"strings"
 
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/operator-framework/api/pkg/manifests"
-	"github.com/operator-framework/operator-registry/pkg/image"
-	"github.com/operator-framework/operator-registry/pkg/image/containerdregistry"
 )
 
 // RegistryConfig contains registry authentication and connection options.
 type RegistryConfig struct {
 	Insecure bool   `mapstructure:"registry-insecure"`
-	AuthFile string `mapstructure:"registry-auth-file"`
 	Username string `mapstructure:"registry-username"`
 	Password string `mapstructure:"registry-password"`
 }
 
 // BundleResource encapsulates all resources associated with a loaded bundle.
-// It manages temporary directories and registry resources, providing a single
-// cleanup method that is safe to call even on partially initialized resources.
+// It manages temporary directories, providing a single cleanup method that is
+// safe to call even on partially initialized resources.
 type BundleResource struct {
-	dir      string
-	tmpDir   string
-	cacheDir string
-	registry *containerdregistry.Registry
+	dir    string
+	tmpDir string
 }
 
 // Dir returns the directory path containing the unpacked bundle.
@@ -35,55 +36,9 @@ func (br *BundleResource) Dir() string {
 	return br.dir
 }
 
-// resolveDockerConfigDir resolves the Docker config directory for DOCKER_CONFIG.
-// Returns the directory path that should be set as DOCKER_CONFIG environment variable.
-// Returns empty string if no auth file is specified (use default behavior).
-func resolveDockerConfigDir(authFile string) (string, error) {
-	if authFile == "" {
-		// No auth file specified, let containerd use default
-		// Try to set default to ~/.docker
-		usr, err := user.Current()
-		if err != nil {
-			// Can't get home dir, return empty to use containerd's default
-			return "", nil
-		}
-
-		return filepath.Join(usr.HomeDir, ".docker"), nil
-	}
-
-	// Expand ~ to home directory
-	if len(authFile) >= 2 && authFile[:2] == "~/" {
-		usr, err := user.Current()
-		if err != nil {
-			return "", fmt.Errorf("failed to get current user: %w", err)
-		}
-		authFile = filepath.Join(usr.HomeDir, authFile[2:])
-	}
-
-	// Check if it's a file or directory
-	info, err := os.Stat(authFile)
-	if err != nil {
-		return "", fmt.Errorf("auth file/directory does not exist: %w", err)
-	}
-
-	if info.IsDir() {
-		// It's a directory, use it directly
-		return authFile, nil
-	}
-
-	// It's a file (e.g., config.json), DOCKER_CONFIG must point to the directory
-	return filepath.Dir(authFile), nil
-}
-
 // Cleanup releases all resources held by the BundleResource.
 // It is idempotent and safe to call on zero-value or partially initialized resources.
 func (br *BundleResource) Cleanup() {
-	if br.registry != nil {
-		_ = br.registry.Destroy()
-	}
-	if br.cacheDir != "" {
-		_ = os.RemoveAll(br.cacheDir)
-	}
 	if br.tmpDir != "" {
 		_ = os.RemoveAll(br.tmpDir)
 	}
@@ -123,6 +78,37 @@ func resolve(input string, config RegistryConfig, tempDir string) (BundleResourc
 	return ExtractImage(input, config, tempDir)
 }
 
+// buildAuthenticator creates an authentication keychain based on the registry config.
+// If explicit credentials are provided, uses them. Otherwise, uses the default keychain
+// which automatically reads from ~/.docker/config.json and uses platform keychains.
+func buildAuthenticator(config RegistryConfig) authn.Keychain {
+	if config.Username != "" && config.Password != "" {
+		// Use explicit credentials via a custom keychain
+		return &staticKeychain{
+			auth: &authn.Basic{
+				Username: config.Username,
+				Password: config.Password,
+			},
+		}
+	}
+
+	// Use default keychain:
+	// - Reads from ~/.docker/config.json
+	// - Supports Docker credential helpers (osxkeychain, gcr, ecr-login, etc.)
+	// - Uses platform keychain (macOS Keychain, Windows Credential Manager, etc.)
+	return authn.DefaultKeychain
+}
+
+// staticKeychain implements authn.Keychain for static credentials.
+type staticKeychain struct {
+	auth authn.Authenticator
+}
+
+// Resolve implements authn.Keychain.
+func (s *staticKeychain) Resolve(_ authn.Resource) (authn.Authenticator, error) {
+	return s.auth, nil
+}
+
 // ExtractImage pulls a container image and extracts it to a temporary directory.
 // Returns a BundleResource containing all created resources.
 // On error, returns a partial BundleResource that is safe to clean up.
@@ -139,53 +125,165 @@ func ExtractImage(imageRef string, config RegistryConfig, tempDir string) (Bundl
 	resource.tmpDir = tmpDir
 	resource.dir = tmpDir
 
-	// Create separate cache directory for containerd registry
-	// This keeps registry cache separate from bundle files
-	cacheDir, err := os.MkdirTemp(tempDir, "bundle-cache-*")
+	// Parse image reference
+	ref, err := name.ParseReference(imageRef)
 	if err != nil {
-		return resource, fmt.Errorf("failed to create cache directory: %w", err)
-	}
-	resource.cacheDir = cacheDir
-
-	// Build registry options
-	registryOpts := []containerdregistry.RegistryOption{
-		containerdregistry.SkipTLSVerify(config.Insecure),
-		containerdregistry.WithCacheDir(cacheDir),
+		return resource, fmt.Errorf("failed to parse image reference %q: %w", imageRef, err)
 	}
 
-	// Enable plaintext HTTP only for insecure connections (development/testing)
+	// Build remote options
+	remoteOpts := []remote.Option{
+		remote.WithAuthFromKeychain(buildAuthenticator(config)),
+		remote.WithContext(ctx),
+	}
+
+	// Configure transport for insecure connections
 	if config.Insecure {
-		registryOpts = append(registryOpts, containerdregistry.WithPlainHTTP(true))
+		remoteOpts = append(remoteOpts, remote.WithTransport(remote.DefaultTransport))
 	}
 
-	// Set DOCKER_CONFIG environment variable for authentication
-	// It must point to a directory containing config.json, not the file itself
-	dockerConfigDir, err := resolveDockerConfigDir(config.AuthFile)
+	// Pull the image
+	img, err := remote.Image(ref, remoteOpts...)
 	if err != nil {
-		return resource, fmt.Errorf("failed to resolve Docker config directory: %w", err)
-	}
-	if dockerConfigDir != "" {
-		_ = os.Setenv("DOCKER_CONFIG", dockerConfigDir)
-	}
-
-	reg, err := containerdregistry.NewRegistry(registryOpts...)
-	if err != nil {
-		return resource, fmt.Errorf("failed to create registry client: %w", err)
-	}
-	resource.registry = reg
-
-	ref := image.SimpleReference(imageRef)
-	if err := reg.Pull(ctx, ref); err != nil {
 		if config.Username == "" && config.Password == "" {
-			return resource, fmt.Errorf("failed to pull image %s: %w\nEnsure you have authenticated with 'docker login' or 'podman login'", imageRef, err)
+			return resource, fmt.Errorf("failed to pull image %s: %w\nEnsure you have authenticated with 'docker login' or credentials are in ~/.docker/config.json", imageRef, err)
 		}
 
 		return resource, fmt.Errorf("failed to pull image %s: %w", imageRef, err)
 	}
 
-	if err := reg.Unpack(ctx, ref, tmpDir); err != nil {
-		return resource, fmt.Errorf("failed to unpack image: %w", err)
+	// Extract image to temporary directory
+	if err := unpackImage(img, tmpDir); err != nil {
+		return resource, fmt.Errorf("failed to extract image: %w", err)
 	}
 
 	return resource, nil
+}
+
+// unpackImage extracts all layers from a container image to a target directory.
+func unpackImage(img v1.Image, targetDir string) error {
+	// Get the filesystem layers
+	layers, err := img.Layers()
+	if err != nil {
+		return fmt.Errorf("failed to get image layers: %w", err)
+	}
+
+	// Extract each layer
+	for _, layer := range layers {
+		if err := extractLayer(layer, targetDir); err != nil {
+			return fmt.Errorf("failed to extract layer: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// extractLayer extracts a single image layer to the target directory.
+func extractLayer(layer v1.Layer, targetDir string) error {
+	// Get layer content (already uncompressed)
+	rc, err := layer.Uncompressed()
+	if err != nil {
+		return fmt.Errorf("failed to get layer content: %w", err)
+	}
+	defer func() {
+		_ = rc.Close()
+	}()
+
+	// Extract tar archive
+	tr := tar.NewReader(rc)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to read tar header: %w", err)
+		}
+
+		if err := extractTarEntry(header, tr, targetDir); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// extractTarEntry extracts a single tar entry to the target directory.
+func extractTarEntry(header *tar.Header, tr *tar.Reader, targetDir string) error {
+	// Resolve target path
+	//nolint:gosec // Path traversal is checked below
+	target := filepath.Join(targetDir, header.Name)
+
+	// Ensure we don't extract outside the target directory (path traversal protection)
+	cleanTarget := filepath.Clean(target)
+	cleanTargetDir := filepath.Clean(targetDir)
+	if !strings.HasPrefix(cleanTarget, cleanTargetDir+string(os.PathSeparator)) &&
+		cleanTarget != cleanTargetDir {
+		return fmt.Errorf("illegal file path in tar: %s", header.Name)
+	}
+
+	switch header.Typeflag {
+	case tar.TypeDir:
+		return extractDirectory(target)
+	case tar.TypeReg:
+		return extractFile(target, header, tr)
+	case tar.TypeSymlink:
+		return extractSymlink(target, header)
+	default:
+		return nil
+	}
+}
+
+// extractDirectory creates a directory with secure permissions.
+func extractDirectory(target string) error {
+	const dirPerms = 0750
+	if err := os.MkdirAll(target, dirPerms); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", target, err)
+	}
+
+	return nil
+}
+
+// extractFile creates a file and writes its contents.
+func extractFile(target string, header *tar.Header, tr *tar.Reader) error {
+	const dirPerms = 0750
+	// Create parent directory if needed
+	if err := os.MkdirAll(filepath.Dir(target), dirPerms); err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+
+	// Create file with mode from tar header
+	//nolint:gosec // File path is validated in extractTarEntry
+	f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+	if err != nil {
+		return fmt.Errorf("failed to create file %s: %w", target, err)
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+
+	if _, err := io.Copy(f, tr); err != nil {
+		return fmt.Errorf("failed to write file %s: %w", target, err)
+	}
+
+	return nil
+}
+
+// extractSymlink creates a symbolic link.
+func extractSymlink(target string, header *tar.Header) error {
+	const dirPerms = 0750
+	// Create parent directory if needed
+	if err := os.MkdirAll(filepath.Dir(target), dirPerms); err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+
+	// Remove existing file/link if present
+	_ = os.Remove(target)
+
+	// Create symlink
+	if err := os.Symlink(header.Linkname, target); err != nil {
+		return fmt.Errorf("failed to create symlink %s: %w", target, err)
+	}
+
+	return nil
 }

@@ -95,6 +95,8 @@ linters:
           disabled: true  # Empty blocks with comments are intentional
         - name: enforce-switch-style
           disabled: true # default would make it more verbose
+        - name: redundant-import-alias
+          disabled: true  # Conflicts with goimports formatter
 
 formatters:
   enable:

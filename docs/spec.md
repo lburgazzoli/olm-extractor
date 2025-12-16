@@ -82,9 +82,8 @@ bundle-extract --catalog <catalog-image> <package>[:version] --namespace <namesp
 | `--cert-manager-issuer-name` | | Name of the cert-manager Issuer or ClusterIssuer for webhook certificates | `selfsigned-cluster-issuer` |
 | `--cert-manager-issuer-kind` | | Kind of cert-manager issuer: Issuer or ClusterIssuer | `ClusterIssuer` |
 | `--registry-insecure` | | Allow insecure connections to registries (HTTP or self-signed certificates) | `false` |
-| `--registry-auth-file` | | Path to registry authentication file | `~/.docker/config.json` |
-| `--registry-username` | | Username for registry authentication | None |
-| `--registry-password` | | Password for registry authentication | None |
+| `--registry-username` | | Username for registry authentication (uses Docker config and credential helpers by default) | None |
+| `--registry-password` | | Password for registry authentication (uses Docker config and credential helpers by default) | None |
 
 ### Environment Variables
 
@@ -98,7 +97,6 @@ All flags can be configured using environment variables with the `BUNDLE_EXTRACT
 | `--cert-manager-issuer-name` | `BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_NAME` | `export BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_NAME=my-issuer` |
 | `--cert-manager-issuer-kind` | `BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_KIND` | `export BUNDLE_EXTRACT_CERT_MANAGER_ISSUER_KIND=Issuer` |
 | `--registry-insecure` | `BUNDLE_EXTRACT_REGISTRY_INSECURE` | `export BUNDLE_EXTRACT_REGISTRY_INSECURE=true` |
-| `--registry-auth-file` | `BUNDLE_EXTRACT_REGISTRY_AUTH_FILE` | `export BUNDLE_EXTRACT_REGISTRY_AUTH_FILE=/path/to/config.json` |
 | `--registry-username` | `BUNDLE_EXTRACT_REGISTRY_USERNAME` | `export BUNDLE_EXTRACT_REGISTRY_USERNAME=myuser` |
 | `--registry-password` | `BUNDLE_EXTRACT_REGISTRY_PASSWORD` | `export BUNDLE_EXTRACT_REGISTRY_PASSWORD=mypass` |
 | `--include` | `BUNDLE_EXTRACT_INCLUDE` | `export BUNDLE_EXTRACT_INCLUDE='.kind == "Deployment"'` |
@@ -108,9 +106,9 @@ Command-line flags take precedence over environment variables.
 
 ### Container Registry Authentication
 
-The tool automatically uses credentials from `~/.docker/config.json` when pulling bundle images from container registries.
+The tool automatically uses credentials from `~/.docker/config.json` when pulling bundle images from container registries. It also supports Docker credential helpers (like `osxkeychain` on macOS, `wincred` on Windows) for secure credential storage.
 
-**Option 1: Using existing Docker/Podman credentials**
+**Option 1: Using existing Docker/Podman credentials (Recommended)**
 
 ```bash
 # Using Docker
@@ -123,30 +121,24 @@ podman login registry.example.com
 bundle-extract registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
 ```
 
-**Option 2: Using custom auth file**
+The tool automatically reads credentials from `~/.docker/config.json` and executes credential helpers as needed. This works with:
+- Docker Desktop (macOS, Windows, Linux)
+- Podman
+- Cloud provider credential helpers (AWS ECR, Google GCR, Azure ACR)
+- Platform keychains (macOS Keychain, Windows Credential Manager)
 
-The `--registry-auth-file` flag accepts either a directory or a file path:
+**Option 2: Using explicit credentials**
 
-```bash
-# Point to a directory containing config.json
-bundle-extract --registry-auth-file ~/.docker \
-  registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
-
-# Or point directly to the config.json file
-bundle-extract --registry-auth-file ~/.docker/config.json \
-  registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
-```
-
-**Option 3: Using environment variables**
+For CI/CD environments or when Docker config is not available:
 
 ```bash
-# Using username and password (Note: see limitations below)
+# Using flags
+bundle-extract --registry-username myuser --registry-password mypass \
+  registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
+
+# Using environment variables
 export BUNDLE_EXTRACT_REGISTRY_USERNAME=myuser
 export BUNDLE_EXTRACT_REGISTRY_PASSWORD=mypass
-bundle-extract registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
-
-# Or specify a custom auth file path
-export BUNDLE_EXTRACT_REGISTRY_AUTH_FILE=/path/to/docker/config.json
 bundle-extract registry.example.com/my-operator:v1.0.0 -n operators | kubectl apply -f -
 ```
 
@@ -158,21 +150,23 @@ For registries with self-signed certificates or HTTP-only registries (developmen
 bundle-extract --registry-insecure localhost:5000/my-operator:latest -n operators | kubectl apply -f -
 ```
 
-#### macOS with Docker Desktop Limitation
+#### Platform-Specific Credential Helpers
 
-On macOS with Docker Desktop, credentials are stored in a credential helper (`docker-credential-desktop`) rather than directly in `config.json`. The underlying `containerd` library may not properly execute credential helpers, which can cause authentication to fail even when `docker pull` works.
+The tool automatically uses platform-specific credential helpers when configured in Docker:
 
-**Workaround:** Store credentials inline in `config.json` by logging in with `--store-plaintext-passwords`:
+**macOS:**
+- Uses `docker-credential-osxkeychain` to read from macOS Keychain
+- Credentials stored via `docker login` are automatically available
 
-```bash
-# SECURITY WARNING: This stores credentials in plaintext
-docker login --store-plaintext-passwords registry.redhat.io
+**Windows:**
+- Uses `docker-credential-wincred` to read from Windows Credential Manager
+- Credentials stored via `docker login` are automatically available
 
-# Then the tool should work
-bundle-extract registry.redhat.io/my-operator:v1.0.0 -n operators | kubectl apply -f -
-```
+**Linux:**
+- Supports `docker-credential-secretservice` for GNOME Keyring/KWallet
+- Supports cloud provider helpers (ecr-login, gcr, gcloud)
 
-Alternatively, use the containerized version which doesn't have this limitation:
+No additional configuration is needed - if Docker can authenticate, so can this tool
 
 ```bash
 docker run --rm -v ~/.docker:/root/.docker:ro \
@@ -549,9 +543,10 @@ import (
     // RBAC generation from CSV (uses OLM's battle-tested implementation)
     "github.com/operator-framework/operator-lifecycle-manager/pkg/controller/registry/resolver"
     
-    // Image registry handling
-    "github.com/operator-framework/operator-registry/pkg/image"
-    "github.com/operator-framework/operator-registry/pkg/image/containerdregistry"
+    // Image registry handling with automatic authentication
+    "github.com/google/go-containerregistry/pkg/authn"
+    "github.com/google/go-containerregistry/pkg/name"
+    "github.com/google/go-containerregistry/pkg/v1/remote"
     
     // CLI framework
     "github.com/spf13/cobra"

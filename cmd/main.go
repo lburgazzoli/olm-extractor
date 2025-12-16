@@ -45,6 +45,9 @@ bundle and transforms them for standalone installation without OLM. It handles:
 The tool supports filtering resources using jq expressions and configuring webhook CA 
 injection using cert-manager.
 
+Registry authentication uses standard Docker credentials from ~/.docker/config.json and
+supports Docker credential helpers (osxkeychain on macOS, etc.) for automatic keychain integration.
+
 All flags can be configured using environment variables with the BUNDLE_EXTRACT_ prefix.
 Flag names are converted to uppercase and dashes are replaced with underscores.
 For example, --namespace can be set via BUNDLE_EXTRACT_NAMESPACE.`
@@ -107,11 +110,9 @@ const certManagerIssuerKindUsage = `Kind of cert-manager issuer to use: Issuer (
 
 const registryInsecureUsage = `Allow insecure connections to registries (HTTP or self-signed certificates)`
 
-const registryAuthFileUsage = `Path to registry authentication file (defaults to ~/.docker/config.json)`
+const registryUsernameUsage = `Username for registry authentication (uses Docker config and credential helpers by default)`
 
-const registryUsernameUsage = `Username for registry authentication`
-
-const registryPasswordUsage = `Password for registry authentication`
+const registryPasswordUsage = `Password for registry authentication (uses Docker config and credential helpers by default)`
 
 const tempDirUsage = `Directory for temporary files and cache (defaults to system temp directory)`
 
@@ -170,7 +171,6 @@ func main() {
 	rootCmd.Flags().String("cert-manager-issuer-name", "selfsigned-cluster-issuer", certManagerIssuerNameUsage)
 	rootCmd.Flags().String("cert-manager-issuer-kind", "ClusterIssuer", certManagerIssuerKindUsage)
 	rootCmd.Flags().Bool("registry-insecure", false, registryInsecureUsage)
-	rootCmd.Flags().String("registry-auth-file", "", registryAuthFileUsage)
 	rootCmd.Flags().String("registry-username", "", registryUsernameUsage)
 	rootCmd.Flags().String("registry-password", "", registryPasswordUsage)
 
