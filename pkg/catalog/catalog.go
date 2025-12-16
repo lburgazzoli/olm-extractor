@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/operator-framework/operator-registry/alpha/declcfg"
 
@@ -16,6 +17,52 @@ type Config struct {
 	PackageName  string
 	Version      string // Optional
 	Channel      string // Optional, defaults to package's defaultChannel
+}
+
+// ResolveBundleSource determines the bundle source from input and configuration.
+// In catalog mode (catalogImage is non-empty), resolves package[:version] to a bundle image.
+// In direct mode (catalogImage is empty), returns input as-is (directory path or image reference).
+func ResolveBundleSource(
+	input string,
+	catalogImage string,
+	channel string,
+	registryConfig bundle.RegistryConfig,
+	tempDir string,
+) (string, error) {
+	if catalogImage != "" {
+		packageName, packageVersion := parsePackageReference(input)
+
+		cfg := Config{
+			CatalogImage: catalogImage,
+			PackageName:  packageName,
+			Version:      packageVersion,
+			Channel:      channel,
+		}
+
+		bundleImage, err := ResolveBundleImage(cfg, registryConfig, tempDir)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve bundle from catalog: %w", err)
+		}
+
+		return bundleImage, nil
+	}
+
+	return input, nil
+}
+
+// parsePackageReference parses a package reference in the format package[:version].
+// Returns the package name and optionally the version.
+//
+//nolint:nonamedreturns // Named returns required to avoid confusing-results linter error
+func parsePackageReference(ref string) (pkgName string, pkgVersion string) {
+	const packageRefParts = 2 // Number of parts when splitting package:version
+
+	parts := strings.SplitN(ref, ":", packageRefParts)
+	if len(parts) == packageRefParts {
+		return parts[0], parts[1]
+	}
+
+	return parts[0], ""
 }
 
 // getCatalogPathPrefixes returns the path prefixes for catalog FBC format.

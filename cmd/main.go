@@ -8,14 +8,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-
 	"github.com/lburgazzoli/olm-extractor/internal/version"
 	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
 	"github.com/lburgazzoli/olm-extractor/pkg/catalog"
 	"github.com/lburgazzoli/olm-extractor/pkg/certmanager"
 	"github.com/lburgazzoli/olm-extractor/pkg/extract"
-	"github.com/lburgazzoli/olm-extractor/pkg/filter"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/render"
 )
@@ -187,90 +184,54 @@ func main() {
 	}
 }
 
+// extractAndRender orchestrates the extraction and rendering pipeline.
 func extractAndRender(input string, cfg Config) error {
-	var bundleImageOrDir string
-
-	if cfg.Catalog != "" {
-		// Catalog mode: input is package[:version]
-		packageName, packageVersion := parsePackageReference(input)
-
-		catalogCfg := catalog.Config{
-			CatalogImage: cfg.Catalog,
-			PackageName:  packageName,
-			Version:      packageVersion,
-			Channel:      cfg.Channel,
-		}
-
-		bundleImage, err := catalog.ResolveBundleImage(catalogCfg, cfg.Registry, cfg.TempDir)
-		if err != nil {
-			return fmt.Errorf("failed to resolve bundle from catalog: %w", err)
-		}
-
-		bundleImageOrDir = bundleImage
-	} else {
-		// Direct bundle mode (existing behavior)
-		bundleImageOrDir = input
+	// Phase 1: Resolve bundle source
+	bundleImageOrDir, err := catalog.ResolveBundleSource(
+		input,
+		cfg.Catalog,
+		cfg.Channel,
+		cfg.Registry,
+		cfg.TempDir,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to resolve bundle source: %w", err)
 	}
 
+	// Phase 2: Load bundle
 	b, err := bundle.Load(bundleImageOrDir, cfg.Registry, cfg.TempDir)
 	if err != nil {
 		return fmt.Errorf("failed to load bundle: %w", err)
 	}
 
+	// Phase 3: Extract manifests
 	objects, err := extract.Manifests(b, cfg.Namespace)
 	if err != nil {
 		return fmt.Errorf("failed to extract manifests: %w", err)
 	}
 
+	// Phase 4: Convert to unstructured
 	unstructuredObjects, err := kube.ConvertToUnstructured(objects)
 	if err != nil {
 		return fmt.Errorf("failed to convert objects: %w", err)
 	}
 
-	if len(cfg.Include) > 0 || len(cfg.Exclude) > 0 {
-		f, err := filter.New(cfg.Include, cfg.Exclude)
-		if err != nil {
-			return fmt.Errorf("failed to create filter: %w", err)
-		}
-
-		filtered := make([]*unstructured.Unstructured, 0, len(unstructuredObjects))
-		for _, obj := range unstructuredObjects {
-			if f.Matches(obj) {
-				filtered = append(filtered, obj)
-			}
-		}
-		unstructuredObjects = filtered
+	// Phase 5: Apply transformations
+	unstructuredObjects, err = extract.ApplyTransformations(
+		unstructuredObjects,
+		cfg.Namespace,
+		cfg.Include,
+		cfg.Exclude,
+		cfg.CertManager,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to apply transformations: %w", err)
 	}
 
-	// Configure cert-manager CA injection for webhooks if enabled
-	if cfg.CertManager.Enabled {
-		unstructuredObjects, err = certmanager.Configure(unstructuredObjects, cfg.Namespace, cfg.CertManager)
-		if err != nil {
-			return fmt.Errorf("failed to configure cert-manager: %w", err)
-		}
-	}
-
-	// Sort objects by priority to ensure proper kubectl apply order
-	kube.SortForApply(unstructuredObjects)
-
+	// Phase 6: Render output
 	if err := render.YAMLFromUnstructured(os.Stdout, unstructuredObjects); err != nil {
 		return fmt.Errorf("failed to render YAML: %w", err)
 	}
 
 	return nil
-}
-
-const packageRefParts = 2 // Number of parts when splitting package:version
-
-// parsePackageReference parses a package reference in the format package[:version].
-// Returns the package name and optionally the version.
-//
-//nolint:nonamedreturns // Named returns required to avoid confusing-results linter error
-func parsePackageReference(ref string) (pkgName string, pkgVersion string) {
-	parts := strings.SplitN(ref, ":", packageRefParts)
-	if len(parts) == packageRefParts {
-		return parts[0], parts[1]
-	}
-
-	return parts[0], ""
 }

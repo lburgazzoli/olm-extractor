@@ -14,8 +14,11 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/lburgazzoli/olm-extractor/pkg/certmanager"
+	"github.com/lburgazzoli/olm-extractor/pkg/filter"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 )
@@ -27,37 +30,60 @@ func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, er
 		return nil, errors.New("bundle does not contain a ClusterServiceVersion")
 	}
 
+	// Phase 1: Collect all resources
+	objects, err := collectResources(bundle, bundle.CSV, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	// Phase 2: Post-process (normalize and sort)
+	objects = postProcessResources(objects)
+
+	return objects, nil
+}
+
+// collectResources gathers all resources from the bundle in extraction order.
+// Returns raw resources before normalization and sorting.
+func collectResources(
+	bundle *manifests.Bundle,
+	csv *v1alpha1.ClusterServiceVersion,
+	namespace string,
+) ([]runtime.Object, error) {
 	objects := make([]runtime.Object, 0)
 
-	// Namespace (if not "default").
+	// Namespace (if not "default")
 	if namespace != "default" {
 		objects = append(objects, kube.CreateNamespace(namespace))
 	}
 
-	// CRDs (with conversion webhook config if applicable).
-	crds := CRDs(bundle, bundle.CSV, namespace)
+	// CRDs (with conversion webhook config if applicable)
+	crds := CRDs(bundle, csv, namespace)
 	objects = append(objects, crds...)
 
-	// RBAC and Deployments from CSV InstallStrategy.
-	installObjects, err := InstallStrategy(bundle.CSV, namespace)
+	// RBAC and Deployments from CSV InstallStrategy
+	installObjects, err := InstallStrategy(csv, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert install strategy: %w", err)
 	}
-
 	objects = append(objects, installObjects...)
 
-	// Webhook Services.
-	webhookServices := WebhookServices(bundle.CSV, namespace)
+	// Webhook Services
+	webhookServices := WebhookServices(csv, namespace)
 	objects = append(objects, webhookServices...)
 
-	// ValidatingWebhookConfigurations and MutatingWebhookConfigurations.
-	webhooks := Webhooks(bundle.CSV, namespace)
+	// ValidatingWebhookConfigurations and MutatingWebhookConfigurations
+	webhooks := Webhooks(csv, namespace)
 	objects = append(objects, webhooks...)
 
-	// Other resources from bundle.
+	// Other resources from bundle
 	otherObjects := OtherResources(bundle, namespace)
 	objects = append(objects, otherObjects...)
 
+	return objects, nil
+}
+
+// postProcessResources applies normalization and sorting to extracted resources.
+func postProcessResources(objects []runtime.Object) []runtime.Object {
 	// Normalize OLM-generated resource names to be simple and consistent.
 	// This strips random suffixes and updates all cross-references.
 	objects = normalizeResourceNames(objects)
@@ -65,7 +91,66 @@ func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, er
 	// Sort resources by priority for proper kubectl apply order.
 	objects = sortKubernetesResources(objects)
 
+	return objects
+}
+
+// ApplyTransformations applies a series of transformations to extracted manifests.
+// Transformations include:
+//  1. jq-based filtering (include/exclude expressions)
+//  2. cert-manager configuration for webhooks
+//  3. Sorting for kubectl apply order
+//
+// This provides a complete post-extraction processing pipeline.
+func ApplyTransformations(
+	objects []*unstructured.Unstructured,
+	namespace string,
+	includeExprs []string,
+	excludeExprs []string,
+	certManagerCfg certmanager.Config,
+) ([]*unstructured.Unstructured, error) {
+	var err error
+
+	// Apply jq filters
+	if len(includeExprs) > 0 || len(excludeExprs) > 0 {
+		objects, err = applyFilters(objects, includeExprs, excludeExprs)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Configure cert-manager
+	if certManagerCfg.Enabled {
+		objects, err = certmanager.Configure(objects, namespace, certManagerCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to configure cert-manager: %w", err)
+		}
+	}
+
+	// Sort for kubectl apply order
+	kube.SortForApply(objects)
+
 	return objects, nil
+}
+
+// applyFilters applies include/exclude jq expressions to filter objects.
+func applyFilters(
+	objects []*unstructured.Unstructured,
+	includeExprs []string,
+	excludeExprs []string,
+) ([]*unstructured.Unstructured, error) {
+	f, err := filter.New(includeExprs, excludeExprs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create filter: %w", err)
+	}
+
+	filtered := make([]*unstructured.Unstructured, 0, len(objects))
+	for _, obj := range objects {
+		if f.Matches(obj) {
+			filtered = append(filtered, obj)
+		}
+	}
+
+	return filtered, nil
 }
 
 // CRDs extracts CustomResourceDefinitions from the bundle.
