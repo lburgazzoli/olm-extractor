@@ -25,7 +25,13 @@ func Convert[T runtime.Object](obj runtime.Object) (T, error) {
 
 	// Try direct type assertion first
 	if typed, ok := obj.(T); ok {
-		return typed.DeepCopyObject().(T), nil
+		copied := typed.DeepCopyObject()
+		result, ok := copied.(T)
+		if !ok {
+			return zero, errors.New("deep copy returned unexpected type")
+		}
+
+		return result, nil
 	}
 
 	// If object is unstructured, try to convert it to the concrete type
@@ -34,6 +40,7 @@ func Convert[T runtime.Object](obj runtime.Object) (T, error) {
 		if err := FromUnstructured(u, &target); err != nil {
 			return zero, fmt.Errorf("failed to convert unstructured to %T: %w", zero, err)
 		}
+
 		return target, nil
 	}
 
