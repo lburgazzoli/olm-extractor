@@ -18,14 +18,14 @@ type Filter struct {
 // New creates a new Filter with compiled jq expressions.
 // Returns an error if any expression fails to compile.
 func New(includeExprs []string, excludeExprs []string) (*Filter, error) {
-	includeQueries, err := parseAll(includeExprs, "include")
+	includeQueries, err := parseAll(includeExprs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid include expression: %w", err)
 	}
 
-	excludeQueries, err := parseAll(excludeExprs, "exclude")
+	excludeQueries, err := parseAll(excludeExprs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid exclude expression: %w", err)
 	}
 
 	return &Filter{
@@ -69,13 +69,13 @@ func (f *Filter) shouldInclude(objMap map[string]any) (bool, error) {
 
 // parseAll compiles multiple jq expressions into queries.
 // Returns an error if any expression fails to compile.
-func parseAll(exprs []string, filterType string) ([]*gojq.Query, error) {
+func parseAll(exprs []string) ([]*gojq.Query, error) {
 	queries := make([]*gojq.Query, 0, len(exprs))
 
 	for _, expr := range exprs {
 		query, err := gojq.Parse(expr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid %s expression %q: %w", filterType, expr, err)
+			return nil, fmt.Errorf("%q: %w", expr, err)
 		}
 		queries = append(queries, query)
 	}
