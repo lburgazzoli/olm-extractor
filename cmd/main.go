@@ -48,6 +48,7 @@ func main() {
 			if err != nil || (stat.Mode()&os.ModeCharDevice) != 0 {
 				// No stdin data - show help
 				_ = cmd.Help()
+
 				return
 			}
 
