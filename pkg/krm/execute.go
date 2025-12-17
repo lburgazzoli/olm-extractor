@@ -30,14 +30,14 @@ func Execute(ctx context.Context, reader io.Reader, writer io.Writer) error {
 	// Phase 3: Convert functionConfig to internal config
 	cfg, input, err := fc.ExtractorConfig.ToConfig(os.TempDir())
 	if err != nil {
-		rl.AddError(fmt.Sprintf("invalid configuration: %v", err))
+		rl.AddErrorf("invalid configuration: %v", err)
 
 		return WriteResourceList(writer, rl)
 	}
 
 	// Phase 4: Validate namespace
 	if err := kube.ValidateNamespace(cfg.Namespace); err != nil {
-		rl.AddError(fmt.Sprintf("invalid namespace: %v", err))
+		rl.AddErrorf("invalid namespace: %v", err)
 
 		return WriteResourceList(writer, rl)
 	}
@@ -52,7 +52,7 @@ func Execute(ctx context.Context, reader io.Reader, writer io.Writer) error {
 		cfg.TempDir,
 	)
 	if err != nil {
-		rl.AddError(fmt.Sprintf("failed to resolve bundle source: %v", err))
+		rl.AddErrorf("failed to resolve bundle source: %v", err)
 
 		return WriteResourceList(writer, rl)
 	}
@@ -60,7 +60,7 @@ func Execute(ctx context.Context, reader io.Reader, writer io.Writer) error {
 	// Phase 6: Load bundle
 	b, err := bundle.Load(ctx, bundleImageOrDir, cfg.Registry, cfg.TempDir)
 	if err != nil {
-		rl.AddError(fmt.Sprintf("failed to load bundle: %v", err))
+		rl.AddErrorf("failed to load bundle: %v", err)
 
 		return WriteResourceList(writer, rl)
 	}
@@ -68,7 +68,7 @@ func Execute(ctx context.Context, reader io.Reader, writer io.Writer) error {
 	// Phase 7: Extract manifests
 	objects, err := extract.Manifests(b, cfg.Namespace)
 	if err != nil {
-		rl.AddError(fmt.Sprintf("failed to extract manifests: %v", err))
+		rl.AddErrorf("failed to extract manifests: %v", err)
 
 		return WriteResourceList(writer, rl)
 	}
@@ -76,7 +76,7 @@ func Execute(ctx context.Context, reader io.Reader, writer io.Writer) error {
 	// Phase 8: Convert to unstructured
 	unstructuredObjects, err := kube.ConvertToUnstructured(objects)
 	if err != nil {
-		rl.AddError(fmt.Sprintf("failed to convert objects: %v", err))
+		rl.AddErrorf("failed to convert objects: %v", err)
 
 		return WriteResourceList(writer, rl)
 	}
@@ -90,7 +90,7 @@ func Execute(ctx context.Context, reader io.Reader, writer io.Writer) error {
 		cfg.CertManager,
 	)
 	if err != nil {
-		rl.AddError(fmt.Sprintf("failed to apply transformations: %v", err))
+		rl.AddErrorf("failed to apply transformations: %v", err)
 
 		return WriteResourceList(writer, rl)
 	}

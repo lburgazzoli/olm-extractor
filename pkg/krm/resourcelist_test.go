@@ -258,15 +258,33 @@ func TestResourceListAddResults(t *testing.T) {
 
 	rl := krm.NewResourceList()
 
-	rl.AddError("test error")
-	rl.AddWarning("test warning")
-	rl.AddInfo("test info")
+	rl.AddErrorf("test error")
+	rl.AddWarningf("test warning")
+	rl.AddInfof("test info")
 
 	g.Expect(rl.Results).To(HaveLen(3))
-	g.Expect(rl.Results[0].Severity).To(Equal("error"))
+	g.Expect(rl.Results[0].Severity).To(Equal(krm.SeverityError))
 	g.Expect(rl.Results[0].Message).To(Equal("test error"))
-	g.Expect(rl.Results[1].Severity).To(Equal("warning"))
+	g.Expect(rl.Results[1].Severity).To(Equal(krm.SeverityWarning))
 	g.Expect(rl.Results[1].Message).To(Equal("test warning"))
-	g.Expect(rl.Results[2].Severity).To(Equal("info"))
+	g.Expect(rl.Results[2].Severity).To(Equal(krm.SeverityInfo))
 	g.Expect(rl.Results[2].Message).To(Equal("test info"))
+}
+
+func TestResourceListAddResultsWithFormatting(t *testing.T) {
+	g := NewWithT(t)
+
+	rl := krm.NewResourceList()
+
+	rl.AddErrorf("failed to process %s: %v", "resource", "some error")
+	rl.AddWarningf("warning for %s at line %d", "file.yaml", 42)
+	rl.AddInfof("processed %d items successfully", 10)
+
+	g.Expect(rl.Results).To(HaveLen(3))
+	g.Expect(rl.Results[0].Severity).To(Equal(krm.SeverityError))
+	g.Expect(rl.Results[0].Message).To(Equal("failed to process resource: some error"))
+	g.Expect(rl.Results[1].Severity).To(Equal(krm.SeverityWarning))
+	g.Expect(rl.Results[1].Message).To(Equal("warning for file.yaml at line 42"))
+	g.Expect(rl.Results[2].Severity).To(Equal(krm.SeverityInfo))
+	g.Expect(rl.Results[2].Message).To(Equal("processed 10 items successfully"))
 }

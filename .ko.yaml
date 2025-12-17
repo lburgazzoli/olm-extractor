@@ -1,6 +1,9 @@
 # Ko build configuration
 # See: https://ko.build/configuration/
 
+# Disable SBOM generation
+sboms: none
+
 builds:
   - id: olm-extractor
     main: ./cmd

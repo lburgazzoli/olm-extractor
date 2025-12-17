@@ -24,6 +24,15 @@ const (
 	extractorKind          = "Extractor"
 )
 
+const (
+	// SeverityError indicates a validation or execution error.
+	SeverityError = "error"
+	// SeverityWarning indicates a warning that should be reviewed.
+	SeverityWarning = "warning"
+	// SeverityInfo provides informational messages.
+	SeverityInfo = "info"
+)
+
 // ResourceList represents the Kustomize KRM function ResourceList format.
 // See: https://github.com/kubernetes-sigs/kustomize/blob/master/cmd/config/docs/api-conventions/functions-spec.md
 type ResourceList struct {
@@ -155,27 +164,27 @@ func NewResourceList() *ResourceList {
 	}
 }
 
-// AddError adds an error result to the ResourceList.
-func (rl *ResourceList) AddError(message string) {
+// AddErrorf adds an error result to the ResourceList.
+func (rl *ResourceList) AddErrorf(format string, args ...any) {
 	rl.Results = append(rl.Results, Result{
-		Message:  message,
-		Severity: "error",
+		Message:  fmt.Sprintf(format, args...),
+		Severity: SeverityError,
 	})
 }
 
-// AddWarning adds a warning result to the ResourceList.
-func (rl *ResourceList) AddWarning(message string) {
+// AddWarningf adds a warning result to the ResourceList.
+func (rl *ResourceList) AddWarningf(format string, args ...any) {
 	rl.Results = append(rl.Results, Result{
-		Message:  message,
-		Severity: "warning",
+		Message:  fmt.Sprintf(format, args...),
+		Severity: SeverityWarning,
 	})
 }
 
-// AddInfo adds an info result to the ResourceList.
-func (rl *ResourceList) AddInfo(message string) {
+// AddInfof adds an info result to the ResourceList.
+func (rl *ResourceList) AddInfof(format string, args ...any) {
 	rl.Results = append(rl.Results, Result{
-		Message:  message,
-		Severity: "info",
+		Message:  fmt.Sprintf(format, args...),
+		Severity: SeverityInfo,
 	})
 }
 
