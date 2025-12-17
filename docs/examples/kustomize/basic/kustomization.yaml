@@ -5,6 +5,7 @@ generators:
   - generator.yaml
 
 # Small customization example: add common labels to all generated resources
-commonLabels:
-  app.kubernetes.io/managed-by: kustomize
-  app.kubernetes.io/part-of: opendatahub
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/part-of: opendatahub

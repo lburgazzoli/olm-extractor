@@ -8,8 +8,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-
-	"github.com/lburgazzoli/olm-extractor/pkg/krm"
 )
 
 const yamlIndent = 2
@@ -51,19 +49,6 @@ func YAMLFromUnstructured(w io.Writer, objects []*unstructured.Unstructured) err
 	}
 
 	return nil
-}
-
-// ToResourceList converts Unstructured objects to ResourceList items.
-// It cleans the objects (removes nil/empty fields) before adding them to the ResourceList.
-func ToResourceList(objects []*unstructured.Unstructured) *krm.ResourceList {
-	rl := krm.NewResourceList()
-
-	for _, obj := range objects {
-		cleaned := CleanUnstructured(obj.Object)
-		rl.Items = append(rl.Items, &unstructured.Unstructured{Object: cleaned})
-	}
-
-	return rl
 }
 
 // ToUnstructured converts a runtime.Object to an unstructured map and removes nil/empty fields.

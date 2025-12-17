@@ -52,7 +52,6 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        command: ["bundle-extract", "krm"]
 spec:
   source: quay.io/example/operator:v1.0.0
   namespace: operators

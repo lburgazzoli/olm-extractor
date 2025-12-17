@@ -53,7 +53,6 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        command: ["bundle-extract", "krm"]
 spec:
   source: quay.io/example/operator:v1.0.0
   namespace: operators
@@ -102,7 +101,6 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        command: ["bundle-extract", "krm"]
 spec:
   # Source is the bundle image
   source: quay.io/example/operator:v1.0.0
@@ -143,7 +141,6 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        command: ["bundle-extract", "krm"]
 spec:
   # Source is the package name (optionally with version)
   source: prometheus:0.56.0
@@ -171,9 +168,6 @@ annotations:
     container:
       # Container image to use
       image: quay.io/lburgazzoli/olm-extractor:latest
-      
-      # Command to execute in the container
-      command: ["bundle-extract", "krm"]
       
       # Optional: Environment variables
       env:
@@ -362,9 +356,10 @@ generators:
   - operator-bundle.yaml
 
 # Add common labels to all resources
-commonLabels:
-  app.kubernetes.io/managed-by: kustomize
-  environment: production
+labels:
+  - pairs:
+      app.kubernetes.io/managed-by: kustomize
+      environment: production
 
 # Patch specific resources
 patches:

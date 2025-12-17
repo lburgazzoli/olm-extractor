@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/lburgazzoli/olm-extractor/cmd/krm"
 	"github.com/lburgazzoli/olm-extractor/cmd/run"
 	"github.com/lburgazzoli/olm-extractor/internal/version"
+	krmexec "github.com/lburgazzoli/olm-extractor/pkg/krm"
 )
 
 const rootLongDescription = `Extract Kubernetes manifests from OLM bundles for direct installation via kubectl.
@@ -37,6 +39,23 @@ func main() {
 		Short:   "Extract Kubernetes manifests from OLM bundles",
 		Long:    rootLongDescription,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version.Version, version.Commit, version.Date),
+		Run: func(cmd *cobra.Command, _ []string) {
+			// Auto-detect KRM mode: if stdin is not a terminal (has piped data),
+			// assume we're being called by Kustomize and run in KRM mode
+			stat, err := os.Stdin.Stat()
+			if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
+				// Stdin is a pipe or file (not a terminal) - run in KRM mode
+				if err := krmexec.Execute(context.Background(), os.Stdin, os.Stdout); err != nil {
+					_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
+
+				return
+			}
+
+			// No stdin data - show help
+			_ = cmd.Help()
+		},
 	}
 
 	// Add subcommands
