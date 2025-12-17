@@ -18,28 +18,20 @@ type Filter struct {
 // New creates a new Filter with compiled jq expressions.
 // Returns an error if any expression fails to compile.
 func New(includeExprs []string, excludeExprs []string) (*Filter, error) {
-	f := &Filter{
-		includeQueries: make([]*gojq.Query, 0, len(includeExprs)),
-		excludeQueries: make([]*gojq.Query, 0, len(excludeExprs)),
+	includeQueries, err := parseAll(includeExprs, "include")
+	if err != nil {
+		return nil, err
 	}
 
-	for _, expr := range includeExprs {
-		query, err := gojq.Parse(expr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid include expression %q: %w", expr, err)
-		}
-		f.includeQueries = append(f.includeQueries, query)
+	excludeQueries, err := parseAll(excludeExprs, "exclude")
+	if err != nil {
+		return nil, err
 	}
 
-	for _, expr := range excludeExprs {
-		query, err := gojq.Parse(expr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid exclude expression %q: %w", expr, err)
-		}
-		f.excludeQueries = append(f.excludeQueries, query)
-	}
-
-	return f, nil
+	return &Filter{
+		includeQueries: includeQueries,
+		excludeQueries: excludeQueries,
+	}, nil
 }
 
 // Matches returns true if the object should be included based on filter rules.
@@ -73,6 +65,22 @@ func (f *Filter) shouldInclude(objMap map[string]any) (bool, error) {
 	}
 
 	return included, nil
+}
+
+// parseAll compiles multiple jq expressions into queries.
+// Returns an error if any expression fails to compile.
+func parseAll(exprs []string, filterType string) ([]*gojq.Query, error) {
+	queries := make([]*gojq.Query, 0, len(exprs))
+
+	for _, expr := range exprs {
+		query, err := gojq.Parse(expr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s expression %q: %w", filterType, expr, err)
+		}
+		queries = append(queries, query)
+	}
+
+	return queries, nil
 }
 
 // matchAny returns true if any of the queries match the object.
