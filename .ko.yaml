@@ -4,9 +4,6 @@
 # Disable SBOM generation
 sboms: none
 
-# Default base image
-defaultBaseImage: gcr.io/distroless/static-debian12:nonroot
-
 builds:
   - id: olm-extractor
     main: ./cmd
