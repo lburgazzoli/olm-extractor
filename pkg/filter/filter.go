@@ -52,15 +52,13 @@ func (f *Filter) Matches(obj *unstructured.Unstructured) (bool, error) {
 
 // shouldInclude determines if an object should be included based on filter rules.
 func (f *Filter) shouldInclude(objMap map[string]any) (bool, error) {
-	// Check exclude filters first (they have priority)
-	for _, query := range f.excludeQueries {
-		matches, err := matchesQuery(query, objMap)
-		if err != nil {
-			return false, fmt.Errorf("exclude filter error: %w", err)
-		}
-		if matches {
-			return false, nil
-		}
+	// Check exclude filters first (ANY match = exclude)
+	excluded, err := matchAny(f.excludeQueries, objMap, "exclude")
+	if err != nil {
+		return false, err
+	}
+	if excluded {
+		return false, nil
 	}
 
 	// If no include filters, include by default (already passed exclude check)
@@ -69,10 +67,21 @@ func (f *Filter) shouldInclude(objMap map[string]any) (bool, error) {
 	}
 
 	// Check if matches any include filter (OR logic)
-	for _, query := range f.includeQueries {
-		matches, err := matchesQuery(query, objMap)
+	included, err := matchAny(f.includeQueries, objMap, "include")
+	if err != nil {
+		return false, err
+	}
+
+	return included, nil
+}
+
+// matchAny returns true if any of the queries match the object.
+// Returns an error if any query execution fails.
+func matchAny(queries []*gojq.Query, obj map[string]any, filterType string) (bool, error) {
+	for _, query := range queries {
+		matches, err := matchesQuery(query, obj)
 		if err != nil {
-			return false, fmt.Errorf("include filter error: %w", err)
+			return false, fmt.Errorf("%s filter error: %w", filterType, err)
 		}
 		if matches {
 			return true, nil
