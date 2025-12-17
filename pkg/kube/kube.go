@@ -52,9 +52,9 @@ func Convert[T runtime.Object](obj runtime.Object) (T, error) {
 
 // ToUnstructured converts a typed Kubernetes object to an Unstructured object.
 func ToUnstructured(obj any) (*unstructured.Unstructured, error) {
-	// Fast path: already unstructured
+	// Fast path: already unstructured - return a deep copy
 	if u, ok := obj.(*unstructured.Unstructured); ok {
-		return u, nil
+		return u.DeepCopy(), nil
 	}
 
 	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
