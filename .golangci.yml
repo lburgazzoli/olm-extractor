@@ -13,10 +13,8 @@ linters:
     - paralleltest
     - funcorder
     - funlen            # Some functions intentionally long for clarity
-    - nilerr            # Intentional: returning nil error with diagnostic result
     - nilnil            # Intentional: returning nil,nil for not-found cases
     - lll               # Line length handled by revive
-    - gocritic          # Too opinionated
   exclusions:
     rules:
       # Test files (includes benchmarks since they're in *_test.go files)
