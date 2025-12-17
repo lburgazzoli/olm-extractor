@@ -20,13 +20,14 @@ func hasAllRequiredContent(dir string, pathPrefixes []string) bool {
 		path := filepath.Join(dir, cleanPrefix)
 
 		// Check if path exists (file or directory)
-		if _, err := os.Stat(path); err == nil {
-			// Found at least one required path, good enough
-			return true
+		if _, err := os.Stat(path); err != nil {
+			// Missing a required path
+			return false
 		}
 	}
 
-	return false
+	// All required paths exist
+	return true
 }
 
 // layerContainsRelevantPaths checks if a layer contains any files matching the given path prefixes.
