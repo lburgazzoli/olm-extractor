@@ -596,3 +596,337 @@ func TestConfigure_ServiceWithExistingPort(t *testing.T) {
 	portNum, _, _ := unstructured.NestedInt64(port, "port")
 	g.Expect(portNum).To(Equal(int64(443)))
 }
+
+func TestConfigure_AutoGenerateIssuer(t *testing.T) {
+	g := NewWithT(t)
+
+	deployment := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]any{
+				"name":      "my-operator",
+				"namespace": "default",
+			},
+		},
+	}
+
+	webhook := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "admissionregistration.k8s.io/v1",
+			"kind":       "ValidatingWebhookConfiguration",
+			"metadata": map[string]any{
+				"name": "my-webhook",
+			},
+			"webhooks": []any{
+				map[string]any{
+					"name": "validate.example.com",
+					"clientConfig": map[string]any{
+						"service": map[string]any{
+							"name":      "my-service",
+							"namespace": "default",
+							"port":      int64(443),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	objects := []*unstructured.Unstructured{deployment, webhook}
+
+	// Empty issuer name and kind should trigger auto-generation
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "",
+		IssuerKind: "",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(HaveLen(5)) // issuer + certificate + deployment + webhook + service
+
+	// Check Issuer was created
+	var foundIssuer *unstructured.Unstructured
+	for _, obj := range result {
+		if obj.GetKind() == gvks.Issuer.Kind {
+			foundIssuer = obj
+
+			break
+		}
+	}
+	g.Expect(foundIssuer).ToNot(BeNil())
+	g.Expect(foundIssuer.GetName()).To(Equal("my-operator-selfsigned"))
+	g.Expect(foundIssuer.GetNamespace()).To(Equal("default"))
+
+	// Verify it's a self-signed issuer
+	spec, found, _ := unstructured.NestedMap(foundIssuer.Object, "spec")
+	g.Expect(found).To(BeTrue())
+	_, hasSelfSigned := spec["selfSigned"]
+	g.Expect(hasSelfSigned).To(BeTrue())
+
+	// Check Certificate references the auto-generated issuer
+	var foundCert *unstructured.Unstructured
+	for _, obj := range result {
+		if obj.GetKind() == gvks.Certificate.Kind {
+			foundCert = obj
+
+			break
+		}
+	}
+	g.Expect(foundCert).ToNot(BeNil())
+
+	issuerRef, found, _ := unstructured.NestedMap(foundCert.Object, "spec", "issuerRef")
+	g.Expect(found).To(BeTrue())
+	g.Expect(issuerRef["name"]).To(Equal("my-operator-selfsigned"))
+	g.Expect(issuerRef["kind"]).To(Equal("Issuer"))
+}
+
+func TestConfigure_ExplicitIssuerNoAutoGeneration(t *testing.T) {
+	g := NewWithT(t)
+
+	deployment := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]any{
+				"name":      "my-operator",
+				"namespace": "default",
+			},
+		},
+	}
+
+	webhook := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "admissionregistration.k8s.io/v1",
+			"kind":       "ValidatingWebhookConfiguration",
+			"metadata": map[string]any{
+				"name": "my-webhook",
+			},
+			"webhooks": []any{
+				map[string]any{
+					"name": "validate.example.com",
+					"clientConfig": map[string]any{
+						"service": map[string]any{
+							"name":      "my-service",
+							"namespace": "default",
+							"port":      int64(443),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	objects := []*unstructured.Unstructured{deployment, webhook}
+
+	// Explicit issuer configuration should NOT trigger auto-generation
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "existing-issuer",
+		IssuerKind: "ClusterIssuer",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
+
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(result).To(HaveLen(4)) // certificate + deployment + webhook + service (no issuer)
+
+	// Verify no Issuer was created
+	for _, obj := range result {
+		g.Expect(obj.GetKind()).ToNot(Equal(gvks.Issuer.Kind))
+		g.Expect(obj.GetKind()).ToNot(Equal(gvks.ClusterIssuer.Kind))
+	}
+
+	// Check Certificate references the explicit issuer
+	var foundCert *unstructured.Unstructured
+	for _, obj := range result {
+		if obj.GetKind() == gvks.Certificate.Kind {
+			foundCert = obj
+
+			break
+		}
+	}
+	g.Expect(foundCert).ToNot(BeNil())
+
+	issuerRef, found, _ := unstructured.NestedMap(foundCert.Object, "spec", "issuerRef")
+	g.Expect(found).To(BeTrue())
+	g.Expect(issuerRef["name"]).To(Equal("existing-issuer"))
+	g.Expect(issuerRef["kind"]).To(Equal("ClusterIssuer"))
+}
+
+func TestExtractOperatorName_FromDeployment(t *testing.T) {
+	g := NewWithT(t)
+
+	deployment := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata": map[string]any{
+				"name": "my-deployment",
+			},
+		},
+	}
+
+	serviceAccount := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ServiceAccount",
+			"metadata": map[string]any{
+				"name": "my-sa",
+			},
+		},
+	}
+
+	webhook := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "admissionregistration.k8s.io/v1",
+			"kind":       "ValidatingWebhookConfiguration",
+			"metadata": map[string]any{
+				"name": "my-webhook",
+			},
+			"webhooks": []any{
+				map[string]any{
+					"name": "validate.example.com",
+					"clientConfig": map[string]any{
+						"service": map[string]any{
+							"name":      "my-service",
+							"namespace": "default",
+							"port":      int64(443),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	objects := []*unstructured.Unstructured{serviceAccount, deployment, webhook}
+
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "",
+		IssuerKind: "",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
+
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Deployment name should be preferred
+	var foundIssuer *unstructured.Unstructured
+	for _, obj := range result {
+		if obj.GetKind() == gvks.Issuer.Kind {
+			foundIssuer = obj
+
+			break
+		}
+	}
+	g.Expect(foundIssuer).ToNot(BeNil())
+	g.Expect(foundIssuer.GetName()).To(Equal("my-deployment-selfsigned"))
+}
+
+func TestExtractOperatorName_FallbackToServiceAccount(t *testing.T) {
+	g := NewWithT(t)
+
+	serviceAccount := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ServiceAccount",
+			"metadata": map[string]any{
+				"name": "my-sa",
+			},
+		},
+	}
+
+	webhook := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "admissionregistration.k8s.io/v1",
+			"kind":       "ValidatingWebhookConfiguration",
+			"metadata": map[string]any{
+				"name": "my-webhook",
+			},
+			"webhooks": []any{
+				map[string]any{
+					"name": "validate.example.com",
+					"clientConfig": map[string]any{
+						"service": map[string]any{
+							"name":      "my-service",
+							"namespace": "default",
+							"port":      int64(443),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	objects := []*unstructured.Unstructured{serviceAccount, webhook}
+
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "",
+		IssuerKind: "",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
+
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// ServiceAccount name should be used if no deployment
+	var foundIssuer *unstructured.Unstructured
+	for _, obj := range result {
+		if obj.GetKind() == gvks.Issuer.Kind {
+			foundIssuer = obj
+
+			break
+		}
+	}
+	g.Expect(foundIssuer).ToNot(BeNil())
+	g.Expect(foundIssuer.GetName()).To(Equal("my-sa-selfsigned"))
+}
+
+func TestExtractOperatorName_DefaultFallback(t *testing.T) {
+	g := NewWithT(t)
+
+	webhook := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "admissionregistration.k8s.io/v1",
+			"kind":       "ValidatingWebhookConfiguration",
+			"metadata": map[string]any{
+				"name": "my-webhook",
+			},
+			"webhooks": []any{
+				map[string]any{
+					"name": "validate.example.com",
+					"clientConfig": map[string]any{
+						"service": map[string]any{
+							"name":      "my-service",
+							"namespace": "default",
+							"port":      int64(443),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	objects := []*unstructured.Unstructured{webhook}
+
+	cfg := certmanager.Config{
+		Enabled:    true,
+		IssuerName: "",
+		IssuerKind: "",
+	}
+	result, err := certmanager.Configure(objects, "default", cfg)
+
+	g.Expect(err).ToNot(HaveOccurred())
+
+	// Default "operator" should be used if no deployment or service account
+	var foundIssuer *unstructured.Unstructured
+	for _, obj := range result {
+		if obj.GetKind() == gvks.Issuer.Kind {
+			foundIssuer = obj
+
+			break
+		}
+	}
+	g.Expect(foundIssuer).ToNot(BeNil())
+	g.Expect(foundIssuer.GetName()).To(Equal("operator-selfsigned"))
+}

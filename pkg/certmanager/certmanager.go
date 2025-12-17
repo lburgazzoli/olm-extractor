@@ -47,6 +47,9 @@ const (
 	// tlsSecretSuffix is appended to service names to create TLS secret names.
 	tlsSecretSuffix = "-tls"
 
+	// selfsignedIssuerSuffix is appended to operator names for auto-generated issuers.
+	selfsignedIssuerSuffix = "-selfsigned"
+
 	// expectedObjectsPerWebhook is the estimated number of objects generated per webhook
 	// (webhook + certificate + service).
 	expectedObjectsPerWebhook = 3
@@ -66,13 +69,17 @@ type Config struct {
 //
 // Processing Flow:
 //  1. Find all webhook configurations (ValidatingWebhookConfiguration, MutatingWebhookConfiguration)
-//  2. For each webhook, extract the service name from clientConfig.service
-//  3. Derive the deployment name from the service name (remove "-service" suffix)
-//  4. Extract the actual webhook secret name from the deployment's volumes
-//  5. Create a cert-manager Certificate resource with the discovered secret name
-//  6. Add cert-manager.io/inject-ca-from annotation to the webhook configuration
-//  7. Ensure the webhook service exists (or create it from deployment info)
-//  8. Deduplicate services that are shared by multiple webhooks
+//  2. Determine issuer configuration (auto-generate or use explicit)
+//  3. For each webhook, extract the service name from clientConfig.service
+//  4. Derive the deployment name from the service name (remove "-service" suffix)
+//  5. Extract the actual webhook secret name from the deployment's volumes
+//  6. Create a cert-manager Certificate resource with the discovered secret name
+//  7. Add cert-manager.io/inject-ca-from annotation to the webhook configuration
+//  8. Ensure the webhook service exists (or create it from deployment info)
+//  9. Deduplicate services that are shared by multiple webhooks
+//
+// Auto-Generation: When IssuerName and IssuerKind are empty, automatically creates a
+// namespace-scoped self-signed Issuer named "<operator-name>-selfsigned".
 //
 // Service Deduplication: Multiple webhooks may reference the same service (e.g., multiple
 // webhook types handled by the same deployment). The processedServiceNames map ensures
@@ -86,10 +93,33 @@ func Configure(objects []*unstructured.Unstructured, namespace string, cfg Confi
 		return objects, nil
 	}
 
+	// Determine issuer configuration
+	issuerName := cfg.IssuerName
+	issuerKind := cfg.IssuerKind
+	var selfSignedIssuer *unstructured.Unstructured
+
+	// Auto-generate self-signed issuer if not explicitly configured
+	if issuerName == "" || issuerKind == "" {
+		operatorName := extractOperatorName(objects)
+		issuerName = operatorName + selfsignedIssuerSuffix
+		issuerKind = "Issuer"
+
+		var err error
+		selfSignedIssuer, err = createSelfSignedIssuer(issuerName, namespace)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create self-signed issuer: %w", err)
+		}
+	}
+
 	// Process all webhooks and their services
-	webhookObjects, processedServiceNames, err := processWebhooks(objects, webhooks, namespace, cfg.IssuerName, cfg.IssuerKind)
+	webhookObjects, processedServiceNames, err := processWebhooks(objects, webhooks, namespace, issuerName, issuerKind)
 	if err != nil {
 		return nil, err
+	}
+
+	// Prepend self-signed issuer if generated
+	if selfSignedIssuer != nil {
+		webhookObjects = append([]*unstructured.Unstructured{selfSignedIssuer}, webhookObjects...)
 	}
 
 	// Add remaining non-webhook objects (excluding processed services)
@@ -105,6 +135,58 @@ func Configure(objects []*unstructured.Unstructured, namespace string, cfg Confi
 	})
 
 	return append(webhookObjects, remainingObjects...), nil
+}
+
+// extractOperatorName determines the operator/bundle name from the objects.
+// Uses the same logic as resource normalization:
+//  1. First deployment name found
+//  2. First service account name found
+//  3. Fallback to "operator"
+func extractOperatorName(objects []*unstructured.Unstructured) string {
+	// Try deployment first
+	deployments := kube.Find(objects, func(obj *unstructured.Unstructured) bool {
+		return kube.IsKind(obj, gvks.Deployment)
+	})
+	if len(deployments) > 0 {
+		return deployments[0].GetName()
+	}
+
+	// Try service account second
+	serviceAccounts := kube.Find(objects, func(obj *unstructured.Unstructured) bool {
+		return kube.IsKind(obj, gvks.ServiceAccount)
+	})
+	if len(serviceAccounts) > 0 {
+		return serviceAccounts[0].GetName()
+	}
+
+	// Fallback
+	return "operator"
+}
+
+// createSelfSignedIssuer creates a namespace-scoped self-signed Issuer.
+func createSelfSignedIssuer(name string, namespace string) (*unstructured.Unstructured, error) {
+	issuer := &certmanagerv1.Issuer{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: gvks.Issuer.GroupVersion().String(),
+			Kind:       gvks.Issuer.Kind,
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: certmanagerv1.IssuerSpec{
+			IssuerConfig: certmanagerv1.IssuerConfig{
+				SelfSigned: &certmanagerv1.SelfSignedIssuer{},
+			},
+		},
+	}
+
+	u, err := kube.ToUnstructured(issuer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert issuer to unstructured: %w", err)
+	}
+
+	return u, nil
 }
 
 // processWebhooks handles webhook processing and returns the configured webhook objects.

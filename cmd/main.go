@@ -102,9 +102,9 @@ Examples:
 
 const certManagerEnabledUsage = `Enable cert-manager integration for webhook certificates (default: true)`
 
-const certManagerIssuerNameUsage = `Name of the cert-manager Issuer or ClusterIssuer to use for webhook certificates`
+const certManagerIssuerNameUsage = `Name of the cert-manager Issuer or ClusterIssuer to use for webhook certificates. If not specified, auto-generates a self-signed Issuer named "<operator>-selfsigned"`
 
-const certManagerIssuerKindUsage = `Kind of cert-manager issuer to use: Issuer (namespace-scoped) or ClusterIssuer (cluster-wide)`
+const certManagerIssuerKindUsage = `Kind of cert-manager issuer to use: Issuer (namespace-scoped) or ClusterIssuer (cluster-wide). If not specified, defaults to "Issuer" with auto-generated self-signed issuer`
 
 const registryInsecureUsage = `Allow insecure connections to registries (HTTP or self-signed certificates)`
 
@@ -167,8 +167,8 @@ func main() {
 	rootCmd.Flags().String("catalog", "", catalogUsage)
 	rootCmd.Flags().String("channel", "", channelUsage)
 	rootCmd.Flags().Bool("cert-manager-enabled", true, certManagerEnabledUsage)
-	rootCmd.Flags().String("cert-manager-issuer-name", "selfsigned-cluster-issuer", certManagerIssuerNameUsage)
-	rootCmd.Flags().String("cert-manager-issuer-kind", "ClusterIssuer", certManagerIssuerKindUsage)
+	rootCmd.Flags().String("cert-manager-issuer-name", "", certManagerIssuerNameUsage)
+	rootCmd.Flags().String("cert-manager-issuer-kind", "", certManagerIssuerKindUsage)
 	rootCmd.Flags().Bool("registry-insecure", false, registryInsecureUsage)
 	rootCmd.Flags().String("registry-username", "", registryUsernameUsage)
 	rootCmd.Flags().String("registry-password", "", registryPasswordUsage)

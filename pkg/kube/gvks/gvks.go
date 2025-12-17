@@ -184,6 +184,12 @@ var (
 		Kind:    "Certificate",
 	}
 
+	Issuer = schema.GroupVersionKind{
+		Group:   "cert-manager.io",
+		Version: "v1",
+		Kind:    "Issuer",
+	}
+
 	ClusterIssuer = schema.GroupVersionKind{
 		Group:   "cert-manager.io",
 		Version: "v1",

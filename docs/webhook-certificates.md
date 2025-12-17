@@ -2,13 +2,14 @@
 
 ## Table of Contents
 1. [Overview](#overview)
-2. [Problem Statement](#problem-statement)
-3. [Resolution Flow](#resolution-flow)
-4. [Secret Name Discovery](#secret-name-discovery)
-5. [Service Management](#service-management)
-6. [Resource Ordering](#resource-ordering)
-7. [Examples](#examples)
-8. [Troubleshooting](#troubleshooting)
+2. [Issuer Configuration](#issuer-configuration)
+3. [Problem Statement](#problem-statement)
+4. [Resolution Flow](#resolution-flow)
+5. [Secret Name Discovery](#secret-name-discovery)
+6. [Service Management](#service-management)
+7. [Resource Ordering](#resource-ordering)
+8. [Examples](#examples)
+9. [Troubleshooting](#troubleshooting)
 
 ## Overview
 
@@ -35,6 +36,66 @@ Instead of reimplementing OLM's certificate management, we leverage cert-manager
 - **CA injection** is handled by cert-manager's CA injector
 - **Secret names** are discovered from deployment volumes (not generated)
 - **Service creation** is automated based on deployment configuration
+
+## Issuer Configuration
+
+### Auto-Generated Self-Signed Issuer (Default)
+
+By default, when cert-manager integration is enabled and no explicit issuer is specified, the tool automatically generates a namespace-scoped self-signed `Issuer` for webhook certificates.
+
+**Naming Convention**: `<operator-name>-selfsigned`
+
+The operator name is determined by:
+1. **First deployment name** found in the bundle (preferred)
+2. **First service account name** found in the bundle (fallback)
+3. **"operator"** (default fallback)
+
+**Example**:
+```bash
+# Auto-generates an Issuer named "my-operator-selfsigned"
+bundle-extract quay.io/example/my-operator-bundle:v1.0.0 -n my-namespace
+```
+
+**Generated Issuer**:
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: my-operator-selfsigned
+  namespace: my-namespace
+spec:
+  selfSigned: {}
+```
+
+### Explicit Issuer Configuration
+
+If you want to use an existing issuer (e.g., a cluster-wide CA issuer), specify both the issuer name and kind:
+
+**Using ClusterIssuer**:
+```bash
+bundle-extract <bundle> -n <namespace> \
+  --cert-manager-issuer-name=my-cluster-issuer \
+  --cert-manager-issuer-kind=ClusterIssuer
+```
+
+**Using Namespace-Scoped Issuer**:
+```bash
+bundle-extract <bundle> -n <namespace> \
+  --cert-manager-issuer-name=my-issuer \
+  --cert-manager-issuer-kind=Issuer
+```
+
+When explicit issuer configuration is provided, no self-signed issuer will be auto-generated.
+
+### Why Self-Signed by Default?
+
+The auto-generated self-signed issuer approach provides:
+- **Zero configuration**: Works out of the box with cert-manager installed
+- **Namespace isolation**: Each operator gets its own issuer
+- **No cluster-wide dependencies**: Doesn't require pre-existing ClusterIssuers
+- **Idempotent deployments**: Each extraction is self-contained
+
+For production environments, you may want to use a proper CA issuer for better trust management.
 
 ## Problem Statement
 
@@ -74,8 +135,16 @@ The following diagram illustrates how webhook certificates are resolved and conf
 flowchart TD
     Start[Extract Manifests] --> HasWebhooks{Has Webhook<br/>Configurations?}
     HasWebhooks -->|No| Return[Return Objects]
-    HasWebhooks -->|Yes| ExtractInfo[Extract Service Info<br/>from Webhook]
+    HasWebhooks -->|Yes| CheckIssuer{Issuer Name<br/>and Kind Set?}
     
+    CheckIssuer -->|Yes| UseExplicit[Use Explicit<br/>Issuer Config]
+    CheckIssuer -->|No| ExtractName[Extract Operator Name<br/>from Deployment/SA]
+    ExtractName --> GenIssuer[Generate Self-Signed<br/>Issuer]
+    
+    GenIssuer --> ProcessWebhooks[Process Webhooks]
+    UseExplicit --> ProcessWebhooks
+    
+    ProcessWebhooks --> ExtractInfo[Extract Service Info<br/>from Webhook]
     ExtractInfo --> DeriveName[Derive Deployment Name<br/>Remove -service suffix]
     DeriveName --> FindDeploy[Find Deployment<br/>in Objects]
     
@@ -89,7 +158,7 @@ flowchart TD
     HasSecrets -->|No| Fallback2[Use Generated<br/>Secret Name]
     HasSecrets -->|Yes| SelectSecret[Select Best Match<br/>webhook cert tls keywords]
     
-    SelectSecret --> CreateCert[Create Certificate<br/>with Actual Secret Name]
+    SelectSecret --> CreateCert[Create Certificate<br/>with Issuer Ref]
     Fallback1 --> CreateCert
     Fallback2 --> CreateCert
     
@@ -101,16 +170,18 @@ flowchart TD
 
 ### Step-by-Step Process
 
-1. **Extract Service Info**: Parse webhook configuration to get service name, namespace, and port
-2. **Derive Deployment Name**: Remove `-service` suffix from service name
-3. **Find Deployment**: Search extracted objects for matching deployment
-4. **Extract Volumes**: Get all volumes from deployment's pod template spec
-5. **Find Secret Volumes**: Filter volumes to only secret types
-6. **Select Best Secret**: Use keyword matching to identify webhook certificate secret
-7. **Create Certificate**: Generate cert-manager Certificate resource with discovered secret name
-8. **Add Annotation**: Add `cert-manager.io/inject-ca-from` annotation to webhook
-9. **Ensure Service**: Create or verify service exists with correct configuration
-10. **Sort Resources**: Order all resources by priority for proper kubectl apply
+1. **Check Issuer Configuration**: Determine if explicit issuer is provided or auto-generation is needed
+2. **Auto-Generate Issuer** (if needed): Extract operator name and create self-signed Issuer
+3. **Extract Service Info**: Parse webhook configuration to get service name, namespace, and port
+4. **Derive Deployment Name**: Remove `-service` suffix from service name
+5. **Find Deployment**: Search extracted objects for matching deployment
+6. **Extract Volumes**: Get all volumes from deployment's pod template spec
+7. **Find Secret Volumes**: Filter volumes to only secret types
+8. **Select Best Secret**: Use keyword matching to identify webhook certificate secret
+9. **Create Certificate**: Generate cert-manager Certificate resource with discovered secret name and issuer reference
+10. **Add Annotation**: Add `cert-manager.io/inject-ca-from` annotation to webhook
+11. **Ensure Service**: Create or verify service exists with correct configuration
+12. **Sort Resources**: Order all resources by priority for proper kubectl apply (Issuer before Certificate before Webhook)
 
 ## Secret Name Discovery
 
@@ -237,9 +308,10 @@ Resources must be applied in a specific order to satisfy dependencies:
 7. ClusterRoleBinding      (grant cluster permissions)
 8. Deployment              (creates pods)
 9. Service                 (endpoints for deployments)
-10. Certificate            (creates secrets for services)
-11. Webhook                (references certificates/services)
-12. Other                  (remaining resources)
+10. Issuer                 (required by certificates)
+11. Certificate            (creates secrets for services)
+12. Webhook                (references certificates/services)
+13. Other                  (remaining resources)
 ```
 
 ### Why Ordering Matters
@@ -274,14 +346,27 @@ This ensures correct ordering even when cert-manager adds new resources.
 
 ## Examples
 
-### Example 1: Simple Webhook Configuration
+### Example 1: Simple Webhook Configuration (Auto-Generated Issuer)
 
 **Input Bundle**:
 - ValidatingWebhookConfiguration (references `operator-service`)
-- Deployment `operator` (has secret volume `operator-webhook-cert`)
+- Deployment `my-operator` (has secret volume `operator-webhook-cert`)
+
+**Command**:
+```bash
+bundle-extract quay.io/example/my-operator-bundle:v1.0.0 -n operator-system
+```
 
 **Output**:
 ```yaml
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: my-operator-selfsigned  # Auto-generated from deployment name
+  namespace: operator-system
+spec:
+  selfSigned: {}
 ---
 apiVersion: v1
 kind: Service
@@ -305,8 +390,8 @@ spec:
   dnsNames:
     - operator-service.operator-system.svc
   issuerRef:
-    kind: ClusterIssuer
-    name: selfsigned-cluster-issuer
+    kind: Issuer  # References auto-generated issuer
+    name: my-operator-selfsigned
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -321,12 +406,20 @@ metadata:
 **Input Bundle**:
 - ValidatingWebhookConfiguration (references `operator-service`)
 - MutatingWebhookConfiguration (references `operator-service`)
-- Deployment `operator`
+- Deployment `my-operator`
 
 **Output**:
 ```yaml
-# Service created once (deduplicated)
 ---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: my-operator-selfsigned
+  namespace: operator-system
+spec:
+  selfSigned: {}
+---
+# Service created once (deduplicated)
 apiVersion: v1
 kind: Service
 metadata:
@@ -341,6 +434,9 @@ metadata:
   namespace: operator-system
 spec:
   secretName: operator-webhook-cert
+  issuerRef:
+    kind: Issuer
+    name: my-operator-selfsigned
 ---
 # Both webhooks reference the same certificate
 apiVersion: admissionregistration.k8s.io/v1
@@ -352,6 +448,56 @@ metadata:
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: operator-system/operator-service-cert
+```
+
+### Example 3: Explicit ClusterIssuer
+
+**Input Bundle**:
+- ValidatingWebhookConfiguration (references `operator-service`)
+- Deployment `my-operator`
+
+**Command**:
+```bash
+bundle-extract quay.io/example/my-operator-bundle:v1.0.0 -n operator-system \
+  --cert-manager-issuer-name=my-ca-issuer \
+  --cert-manager-issuer-kind=ClusterIssuer
+```
+
+**Output**:
+```yaml
+---
+# No auto-generated Issuer (explicit configuration provided)
+apiVersion: v1
+kind: Service
+metadata:
+  name: operator-service
+  namespace: operator-system
+spec:
+  selector:
+    app: operator
+  ports:
+    - port: 443
+      targetPort: 9443
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: operator-service-cert
+  namespace: operator-system
+spec:
+  secretName: operator-webhook-cert
+  dnsNames:
+    - operator-service.operator-system.svc
+  issuerRef:
+    kind: ClusterIssuer  # Uses explicit issuer
+    name: my-ca-issuer
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: operator-webhook
   annotations:
     cert-manager.io/inject-ca-from: operator-system/operator-service-cert
 ```
@@ -415,7 +561,7 @@ metadata:
 
 ### Issue: cert-manager not installed
 
-**Symptom**: Certificates remain in "Pending" state
+**Symptom**: Certificates or Issuers remain in "Pending" state
 
 **Cause**: cert-manager is not installed in the cluster
 
@@ -425,27 +571,32 @@ Install cert-manager:
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.0/cert-manager.yaml
 ```
 
-Create ClusterIssuer:
-```bash
-kubectl apply -f - <<EOF
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: selfsigned-cluster-issuer
-spec:
-  selfSigned: {}
-EOF
-```
+The auto-generated self-signed Issuer will be created automatically when you apply the extracted manifests. No additional ClusterIssuer setup is required.
 
-### Issue: Wrong ClusterIssuer name
+### Issue: Issuer not found
 
-**Symptom**: Certificate shows "Issuer not found"
+**Symptom**: Certificate shows "Issuer not found" or "Issuer.cert-manager.io not found"
 
-**Cause**: Certificate references non-existent ClusterIssuer
+**Cause**: 
+1. cert-manager CRDs not installed
+2. Auto-generated Issuer not applied
+3. Wrong issuer name specified
 
 **Solution**:
-Use `--cert-manager-issuer-name` flag to specify correct issuer:
+
+For auto-generated issuer:
 ```bash
+# Ensure all resources were applied including the Issuer
+kubectl get issuer -n <namespace>
+```
+
+For explicit issuer configuration:
+```bash
+# Verify the issuer exists
+kubectl get clusterissuer <name>  # for ClusterIssuer
+kubectl get issuer <name> -n <namespace>  # for Issuer
+
+# Or specify the correct issuer name
 bundle-extract <bundle> -n <namespace> \
   --cert-manager-issuer-name=my-issuer \
   --cert-manager-issuer-kind=ClusterIssuer

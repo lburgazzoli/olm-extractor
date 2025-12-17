@@ -50,15 +50,25 @@ docker run --rm quay.io/lburgazzoli/olm-extractor:main \
 **Cert-Manager Configuration:**
 
 ```bash
-# Disable cert-manager integration
+# Default: Auto-generates self-signed Issuer (e.g., "my-operator-selfsigned")
 docker run --rm quay.io/lburgazzoli/olm-extractor:main \
-  --cert-manager-enabled=false \
   quay.io/example/operator:v1.0.0 -n operators | kubectl apply -f -
 
-# Use custom Issuer
+# Use custom ClusterIssuer
+docker run --rm quay.io/lburgazzoli/olm-extractor:main \
+  --cert-manager-issuer-name my-cluster-issuer \
+  --cert-manager-issuer-kind ClusterIssuer \
+  quay.io/example/operator:v1.0.0 -n operators | kubectl apply -f -
+
+# Use custom namespace-scoped Issuer
 docker run --rm quay.io/lburgazzoli/olm-extractor:main \
   --cert-manager-issuer-name my-issuer \
   --cert-manager-issuer-kind Issuer \
+  quay.io/example/operator:v1.0.0 -n operators | kubectl apply -f -
+
+# Disable cert-manager integration
+docker run --rm quay.io/lburgazzoli/olm-extractor:main \
+  --cert-manager-enabled=false \
   quay.io/example/operator:v1.0.0 -n operators | kubectl apply -f -
 ```
 
