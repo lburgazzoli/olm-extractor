@@ -7,7 +7,7 @@ This directory contains examples of using `olm-extractor` as a Kustomize generat
 The [basic](./basic/) example demonstrates extracting manifests from a bundle image:
 
 ```bash
-kustomize build --enable-alpha-plugins docs/examples/kustomize/basic
+kustomize build --enable-alpha-plugins --network docs/examples/kustomize/basic
 ```
 
 ## API Reference
@@ -23,6 +23,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
 spec:
   # Source: bundle image OR package[:version] (depending on mode)
   source: quay.io/example/operator-bundle:v1.0.0
@@ -71,6 +72,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
 spec:
   source: quay.io/example/operator-bundle:v1.0.0
   namespace: operators
@@ -89,6 +91,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
 spec:
   source: prometheus:0.56.0  # package:version
   catalog:
@@ -112,6 +115,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
         mounts:
           - type: bind
             src: ~/.docker/config.json
@@ -137,6 +141,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
         env:
           - BUNDLE_EXTRACT_REGISTRY_USERNAME=myuser
           - BUNDLE_EXTRACT_REGISTRY_PASSWORD=mypass
@@ -361,6 +366,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
         mounts:
           - type: bind
             src: ~/.docker/config.json
@@ -391,7 +397,7 @@ If you encounter authentication errors:
 Check the Kustomize logs for error messages:
 
 ```bash
-kustomize build --enable-alpha-plugins docs/examples/kustomize/basic 2>&1
+kustomize build --enable-alpha-plugins --network docs/examples/kustomize/basic 2>&1
 ```
 
 Common issues:

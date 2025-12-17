@@ -53,6 +53,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
 spec:
   source: quay.io/example/operator:v1.0.0
   namespace: operators
@@ -76,11 +77,13 @@ generators:
 
 ```bash
 # Preview generated manifests
-kustomize build --enable-alpha-plugins .
+kustomize build --enable-alpha-plugins --network .
 
 # Apply to cluster
-kustomize build --enable-alpha-plugins . | kubectl apply -f -
+kustomize build --enable-alpha-plugins --network . | kubectl apply -f -
 ```
+
+**Note:** The `--network` flag is required because the function needs network access to pull bundle images from container registries.
 
 ## Configuration
 
@@ -101,6 +104,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
 spec:
   # Source is the bundle image
   source: quay.io/example/operator:v1.0.0
@@ -141,6 +145,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
 spec:
   # Source is the package name (optionally with version)
   source: prometheus:0.56.0
@@ -169,6 +174,9 @@ annotations:
       # Container image to use
       image: quay.io/lburgazzoli/olm-extractor:latest
       
+      # Network access (required for pulling images)
+      network: true
+      
       # Optional: Environment variables
       env:
         - BUNDLE_EXTRACT_REGISTRY_INSECURE=true
@@ -179,9 +187,6 @@ annotations:
           src: ~/.docker/config.json
           dst: /root/.docker/config.json
           readOnly: true
-      
-      # Optional: Network access (default: true)
-      network: true
 ```
 
 ## Registry Authentication
@@ -195,7 +200,7 @@ annotations:
   config.kubernetes.io/function: |
     container:
       image: quay.io/lburgazzoli/olm-extractor:latest
-      command: ["bundle-extract", "krm"]
+      network: true
       mounts:
         - type: bind
           src: ~/.docker/config.json
@@ -216,7 +221,7 @@ annotations:
 docker login registry.example.com
 
 # Credentials are now available
-kustomize build --enable-alpha-plugins .
+kustomize build --enable-alpha-plugins --network .
 ```
 
 ### Method 2: Environment Variables
@@ -228,7 +233,7 @@ annotations:
   config.kubernetes.io/function: |
     container:
       image: quay.io/lburgazzoli/olm-extractor:latest
-      command: ["bundle-extract", "krm"]
+      network: true
       env:
         - BUNDLE_EXTRACT_REGISTRY_USERNAME=myuser
         - BUNDLE_EXTRACT_REGISTRY_PASSWORD=mypassword
@@ -268,7 +273,7 @@ annotations:
   config.kubernetes.io/function: |
     container:
       image: quay.io/lburgazzoli/olm-extractor:latest
-      command: ["bundle-extract", "krm"]
+      network: true
       env:
         - BUNDLE_EXTRACT_REGISTRY_INSECURE=true
 ```
@@ -460,10 +465,10 @@ patches:
 Error: couldn't execute function: ...
 ```
 
-**Solution:** Use the `--enable-alpha-plugins` flag:
+**Solution:** Use the `--enable-alpha-plugins` and `--network` flags:
 
 ```bash
-kustomize build --enable-alpha-plugins .
+kustomize build --enable-alpha-plugins --network .
 ```
 
 ### Image Pull Failures
@@ -507,7 +512,7 @@ If `kustomize build` produces no resources:
      config.kubernetes.io/function: |  # Note the | for multiline
        container:
          image: quay.io/lburgazzoli/olm-extractor:latest
-         command: ["bundle-extract", "krm"]
+         network: true
    ```
 
 3. **Ensure spec fields are present:**

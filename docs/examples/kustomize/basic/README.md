@@ -11,17 +11,36 @@ This example demonstrates how to use `olm-extractor` as a Kustomize generator to
 
 ## Usage
 
+### Using the run.sh Script (Recommended)
+
+The easiest way to run this example:
+
+```bash
+./docs/examples/kustomize/basic/run.sh
+```
+
+Or from within the directory:
+
+```bash
+cd docs/examples/kustomize/basic
+./run.sh
+```
+
+### Using Kustomize Directly
+
 Generate the manifests:
 
 ```bash
-kustomize build --enable-alpha-plugins docs/examples/kustomize/basic
+kustomize build --enable-alpha-plugins --network docs/examples/kustomize/basic
 ```
 
 Apply to a cluster:
 
 ```bash
-kustomize build --enable-alpha-plugins docs/examples/kustomize/basic | kubectl apply -f -
+kustomize build --enable-alpha-plugins --network docs/examples/kustomize/basic | kubectl apply -f -
 ```
+
+**Note:** The `--network` flag is required because the function needs network access to pull bundle images from container registries.
 
 ## What Resources Are Generated
 

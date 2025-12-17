@@ -564,6 +564,7 @@ const (
 	priorityClusterRoleBinding
 	priorityDeployment
 	priorityService
+	priorityIssuer      // cert-manager Issuers must come before Certificates that reference them
 	priorityCertificate // cert-manager Certificates must come before webhooks that use them
 	priorityWebhook
 	priorityOther
@@ -571,7 +572,7 @@ const (
 
 // sortKubernetesResources sorts resources by their type priority for proper kubectl apply order.
 // Ordering: Namespace → CRD → ServiceAccount → Role → RoleBinding → ClusterRole →
-// ClusterRoleBinding → Deployment → Service → Certificate → Webhook → Other.
+// ClusterRoleBinding → Deployment → Service → Issuer → Certificate → Webhook → Other.
 func sortKubernetesResources(objects []runtime.Object) []runtime.Object {
 	// Create a copy to avoid modifying the original slice
 	sorted := make([]runtime.Object, len(objects))
@@ -609,6 +610,8 @@ func getResourcePriority(obj runtime.Object) int {
 		return priorityDeployment
 	case gvks.Service:
 		return priorityService
+	case gvks.Issuer, gvks.ClusterIssuer:
+		return priorityIssuer
 	case gvks.Certificate:
 		return priorityCertificate
 	case gvks.ValidatingWebhookConfiguration, gvks.MutatingWebhookConfiguration:

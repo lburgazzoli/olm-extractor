@@ -308,7 +308,7 @@ Resources must be applied in a specific order to satisfy dependencies:
 7. ClusterRoleBinding      (grant cluster permissions)
 8. Deployment              (creates pods)
 9. Service                 (endpoints for deployments)
-10. Issuer                 (required by certificates)
+10. Issuer/ClusterIssuer   (required by certificates)
 11. Certificate            (creates secrets for services)
 12. Webhook                (references certificates/services)
 13. Other                  (remaining resources)

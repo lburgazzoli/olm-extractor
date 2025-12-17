@@ -52,6 +52,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
+        network: true
 spec:
   source: quay.io/example/operator:v1.0.0
   namespace: operators
@@ -60,7 +61,7 @@ spec:
 Then run:
 
 ```bash
-kustomize build --enable-alpha-plugins . | kubectl apply -f -
+kustomize build --enable-alpha-plugins --network . | kubectl apply -f -
 ```
 
 ## CLI Examples
