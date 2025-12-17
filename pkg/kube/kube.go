@@ -319,12 +319,11 @@ func ConvertToUnstructured(objects []runtime.Object) ([]*unstructured.Unstructur
 	result := make([]*unstructured.Unstructured, 0, len(objects))
 
 	for _, obj := range objects {
-		objMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+		u, err := ToUnstructured(obj)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert to unstructured: %w", err)
+			return nil, err
 		}
 
-		u := &unstructured.Unstructured{Object: objMap}
 		result = append(result, u)
 	}
 
