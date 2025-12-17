@@ -37,7 +37,10 @@ func Manifests(bundle *manifests.Bundle, namespace string) ([]runtime.Object, er
 	}
 
 	// Phase 2: Post-process (normalize and sort)
-	objects = postProcessResources(objects)
+	objects, err = postProcessResources(objects)
+	if err != nil {
+		return nil, err
+	}
 
 	return objects, nil
 }
@@ -83,15 +86,18 @@ func collectResources(
 }
 
 // postProcessResources applies normalization and sorting to extracted resources.
-func postProcessResources(objects []runtime.Object) []runtime.Object {
+func postProcessResources(objects []runtime.Object) ([]runtime.Object, error) {
 	// Normalize OLM-generated resource names to be simple and consistent.
 	// This strips random suffixes and updates all cross-references.
-	objects = normalizeResourceNames(objects)
+	normalizedObjects, err := normalizeResourceNames(objects)
+	if err != nil {
+		return nil, fmt.Errorf("failed to normalize resource names: %w", err)
+	}
 
 	// Sort resources by priority for proper kubectl apply order.
-	objects = sortKubernetesResources(objects)
+	sortedObjects := sortKubernetesResources(normalizedObjects)
 
-	return objects
+	return sortedObjects, nil
 }
 
 // ApplyTransformations applies a series of transformations to extracted manifests.

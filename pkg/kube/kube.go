@@ -17,6 +17,29 @@ import (
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 )
 
+// Convert converts a runtime.Object to the specified concrete type T and returns a deep copy.
+// It handles both direct type assertions and unstructured objects by attempting conversion.
+// This is useful when you need to work with typed objects while ensuring immutability.
+func Convert[T runtime.Object](obj runtime.Object) (T, error) {
+	var zero T
+
+	// Try direct type assertion first
+	if typed, ok := obj.(T); ok {
+		return typed.DeepCopyObject().(T), nil
+	}
+
+	// If object is unstructured, try to convert it to the concrete type
+	if u, ok := obj.(*unstructured.Unstructured); ok {
+		var target T
+		if err := FromUnstructured(u, &target); err != nil {
+			return zero, fmt.Errorf("failed to convert unstructured to %T: %w", zero, err)
+		}
+		return target, nil
+	}
+
+	return zero, fmt.Errorf("object is not of type %T and not unstructured", zero)
+}
+
 // ToUnstructured converts a typed Kubernetes object to an Unstructured object.
 func ToUnstructured(obj any) (*unstructured.Unstructured, error) {
 	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)

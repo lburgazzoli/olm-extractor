@@ -1,9 +1,11 @@
 package extract
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
+	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -36,7 +38,7 @@ type nameMapping struct {
 
 // normalizeResourceNames normalizes OLM-generated resource names to be simple and consistent.
 // It strips random suffixes and generates clean, deterministic names based on the deployment name.
-func normalizeResourceNames(objects []runtime.Object) []runtime.Object {
+func normalizeResourceNames(objects []runtime.Object) ([]runtime.Object, error) {
 	mapping := buildNameMapping(objects)
 
 	return applyNameMapping(objects, mapping)
@@ -158,168 +160,179 @@ func isOLMGeneratedName(name string) bool {
 }
 
 // applyNameMapping applies the name mapping to all resources and their cross-references.
-func applyNameMapping(objects []runtime.Object, mapping *nameMapping) []runtime.Object {
+func applyNameMapping(objects []runtime.Object, mapping *nameMapping) ([]runtime.Object, error) {
 	if len(mapping.oldToNew) == 0 {
-		return objects
+		return objects, nil
 	}
 
 	normalized := make([]runtime.Object, 0, len(objects))
 
 	for _, obj := range objects {
-		normalized = append(normalized, normalizeObject(obj, mapping))
+		normalizedObj, err := normalizeObject(obj, mapping)
+		if err != nil {
+			return nil, fmt.Errorf("failed to normalize object: %w", err)
+		}
+		normalized = append(normalized, normalizedObj)
 	}
 
-	return normalized
+	return normalized, nil
 }
 
 // normalizeObject normalizes a single object's name and cross-references.
-func normalizeObject(obj runtime.Object, mapping *nameMapping) runtime.Object {
+func normalizeObject(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
 	gvk := obj.GetObjectKind().GroupVersionKind()
 	switch gvk {
 	case gvks.Role:
-		if role, ok := obj.(*rbacv1.Role); ok {
-			return normalizeRole(role, mapping)
-		}
+		return normalizeRole(obj, mapping)
 	case gvks.RoleBinding:
-		if rb, ok := obj.(*rbacv1.RoleBinding); ok {
-			return normalizeRoleBinding(rb, mapping)
-		}
+		return normalizeRoleBinding(obj, mapping)
 	case gvks.ClusterRole:
-		if cr, ok := obj.(*rbacv1.ClusterRole); ok {
-			return normalizeClusterRole(cr, mapping)
-		}
+		return normalizeClusterRole(obj, mapping)
 	case gvks.ClusterRoleBinding:
-		if crb, ok := obj.(*rbacv1.ClusterRoleBinding); ok {
-			return normalizeClusterRoleBinding(crb, mapping)
-		}
+		return normalizeClusterRoleBinding(obj, mapping)
 	case gvks.ServiceAccount:
-		if sa, ok := obj.(*corev1.ServiceAccount); ok {
-			return normalizeServiceAccount(sa, mapping)
-		}
+		return normalizeServiceAccount(obj, mapping)
 	case gvks.Deployment:
-		if dep, ok := obj.(*appsv1.Deployment); ok {
-			return normalizeDeployment(dep, mapping)
-		}
+		return normalizeDeployment(obj, mapping)
 	case gvks.ValidatingWebhookConfiguration:
-		if vwc, ok := obj.(*admissionregistrationv1.ValidatingWebhookConfiguration); ok {
-			return normalizeValidatingWebhook(vwc, mapping)
-		}
+		return normalizeValidatingWebhook(obj, mapping)
 	case gvks.MutatingWebhookConfiguration:
-		if mwc, ok := obj.(*admissionregistrationv1.MutatingWebhookConfiguration); ok {
-			return normalizeMutatingWebhook(mwc, mapping)
-		}
+		return normalizeMutatingWebhook(obj, mapping)
 	}
 
-	return obj
+	return obj, nil
 }
 
 // normalizeServiceAccount normalizes a ServiceAccount's name.
-func normalizeServiceAccount(sa *corev1.ServiceAccount, mapping *nameMapping) runtime.Object {
-	normalized := sa.DeepCopy()
-	key := resourceKey{name: normalized.Name, kind: "ServiceAccount"}
-	if newName, ok := mapping.oldToNew[key]; ok {
-		normalized.Name = newName
+func normalizeServiceAccount(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
+	sa, err := kube.Convert[*corev1.ServiceAccount](obj)
+	if err != nil {
+		return nil, err
 	}
 
-	return normalized
+	key := resourceKey{name: sa.Name, kind: "ServiceAccount"}
+	if newName, ok := mapping.oldToNew[key]; ok {
+		sa.Name = newName
+	}
+
+	return sa, nil
 }
 
 // normalizeRole normalizes a Role's name.
-func normalizeRole(role *rbacv1.Role, mapping *nameMapping) runtime.Object {
-	normalized := role.DeepCopy()
-	key := resourceKey{name: normalized.Name, kind: "Role"}
-	if newName, ok := mapping.oldToNew[key]; ok {
-		normalized.Name = newName
+func normalizeRole(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
+	role, err := kube.Convert[*rbacv1.Role](obj)
+	if err != nil {
+		return nil, err
 	}
 
-	return normalized
+	key := resourceKey{name: role.Name, kind: "Role"}
+	if newName, ok := mapping.oldToNew[key]; ok {
+		role.Name = newName
+	}
+
+	return role, nil
 }
 
 // normalizeRoleBinding normalizes a RoleBinding's name and roleRef.
-func normalizeRoleBinding(rb *rbacv1.RoleBinding, mapping *nameMapping) runtime.Object {
-	normalized := rb.DeepCopy()
+func normalizeRoleBinding(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
+	rb, err := kube.Convert[*rbacv1.RoleBinding](obj)
+	if err != nil {
+		return nil, err
+	}
 
 	// Update the RoleBinding's own name
-	key := resourceKey{name: normalized.Name, kind: "RoleBinding"}
+	key := resourceKey{name: rb.Name, kind: "RoleBinding"}
 	if newName, ok := mapping.oldToNew[key]; ok {
-		normalized.Name = newName
+		rb.Name = newName
 	}
 
 	// Update the roleRef to point to the normalized Role name
-	roleKey := resourceKey{name: normalized.RoleRef.Name, kind: "Role"}
+	roleKey := resourceKey{name: rb.RoleRef.Name, kind: "Role"}
 	if newRoleName, ok := mapping.oldToNew[roleKey]; ok {
-		normalized.RoleRef.Name = newRoleName
+		rb.RoleRef.Name = newRoleName
 	}
 
-	return normalized
+	return rb, nil
 }
 
 // normalizeClusterRole normalizes a ClusterRole's name.
-func normalizeClusterRole(cr *rbacv1.ClusterRole, mapping *nameMapping) runtime.Object {
-	normalized := cr.DeepCopy()
-	key := resourceKey{name: normalized.Name, kind: "ClusterRole"}
-	if newName, ok := mapping.oldToNew[key]; ok {
-		normalized.Name = newName
+func normalizeClusterRole(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
+	cr, err := kube.Convert[*rbacv1.ClusterRole](obj)
+	if err != nil {
+		return nil, err
 	}
 
-	return normalized
+	key := resourceKey{name: cr.Name, kind: "ClusterRole"}
+	if newName, ok := mapping.oldToNew[key]; ok {
+		cr.Name = newName
+	}
+
+	return cr, nil
 }
 
 // normalizeClusterRoleBinding normalizes a ClusterRoleBinding's name and roleRef.
-func normalizeClusterRoleBinding(crb *rbacv1.ClusterRoleBinding, mapping *nameMapping) runtime.Object {
-	normalized := crb.DeepCopy()
+func normalizeClusterRoleBinding(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
+	crb, err := kube.Convert[*rbacv1.ClusterRoleBinding](obj)
+	if err != nil {
+		return nil, err
+	}
 
 	// Update the ClusterRoleBinding's own name
-	key := resourceKey{name: normalized.Name, kind: "ClusterRoleBinding"}
+	key := resourceKey{name: crb.Name, kind: "ClusterRoleBinding"}
 	if newName, ok := mapping.oldToNew[key]; ok {
-		normalized.Name = newName
+		crb.Name = newName
 	}
 
 	// Update the roleRef to point to the normalized ClusterRole name
-	roleKey := resourceKey{name: normalized.RoleRef.Name, kind: "ClusterRole"}
+	roleKey := resourceKey{name: crb.RoleRef.Name, kind: "ClusterRole"}
 	if newClusterRoleName, ok := mapping.oldToNew[roleKey]; ok {
-		normalized.RoleRef.Name = newClusterRoleName
+		crb.RoleRef.Name = newClusterRoleName
 	}
 
-	return normalized
+	return crb, nil
 }
 
 // normalizeDeployment normalizes serviceAccountName references in a Deployment.
-func normalizeDeployment(dep *appsv1.Deployment, mapping *nameMapping) runtime.Object {
-	normalized := dep.DeepCopy()
+func normalizeDeployment(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
+	dep, err := kube.Convert[*appsv1.Deployment](obj)
+	if err != nil {
+		return nil, err
+	}
 
 	// Update serviceAccountName if it was renamed
-	saName := normalized.Spec.Template.Spec.ServiceAccountName
+	saName := dep.Spec.Template.Spec.ServiceAccountName
 	if saName != "" {
 		saKey := resourceKey{name: saName, kind: "ServiceAccount"}
 		if newSAName, ok := mapping.oldToNew[saKey]; ok {
-			normalized.Spec.Template.Spec.ServiceAccountName = newSAName
+			dep.Spec.Template.Spec.ServiceAccountName = newSAName
 		}
 	}
 
-	return normalized
+	return dep, nil
 }
 
 // normalizeValidatingWebhook normalizes webhook configuration names.
-func normalizeValidatingWebhook(
-	vwc *admissionregistrationv1.ValidatingWebhookConfiguration,
-	mapping *nameMapping,
-) runtime.Object {
-	normalized := vwc.DeepCopy()
-	normalized.Name = normalizeWebhookName(normalized.Name, mapping.deploymentName, "validating")
+func normalizeValidatingWebhook(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
+	vwc, err := kube.Convert[*admissionregistrationv1.ValidatingWebhookConfiguration](obj)
+	if err != nil {
+		return nil, err
+	}
 
-	return normalized
+	vwc.Name = normalizeWebhookName(vwc.Name, mapping.deploymentName, "validating")
+
+	return vwc, nil
 }
 
 // normalizeMutatingWebhook normalizes webhook configuration names.
-func normalizeMutatingWebhook(
-	mwc *admissionregistrationv1.MutatingWebhookConfiguration,
-	mapping *nameMapping,
-) runtime.Object {
-	normalized := mwc.DeepCopy()
-	normalized.Name = normalizeWebhookName(normalized.Name, mapping.deploymentName, "mutating")
+func normalizeMutatingWebhook(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
+	mwc, err := kube.Convert[*admissionregistrationv1.MutatingWebhookConfiguration](obj)
+	if err != nil {
+		return nil, err
+	}
 
-	return normalized
+	mwc.Name = normalizeWebhookName(mwc.Name, mapping.deploymentName, "mutating")
+
+	return mwc, nil
 }
 
 // normalizeWebhookName generates a clean webhook name based on deployment name and type.
