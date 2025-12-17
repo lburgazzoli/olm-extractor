@@ -14,13 +14,13 @@ This example demonstrates how to use `olm-extractor` as a Kustomize generator to
 Generate the manifests:
 
 ```bash
-kubectl kustomize docs/examples/kustomize/basic
+kustomize build --enable-alpha-plugins docs/examples/kustomize/basic
 ```
 
 Apply to a cluster:
 
 ```bash
-kubectl kustomize docs/examples/kustomize/basic | kubectl apply -f -
+kustomize build --enable-alpha-plugins docs/examples/kustomize/basic | kubectl apply -f -
 ```
 
 ## What Resources Are Generated

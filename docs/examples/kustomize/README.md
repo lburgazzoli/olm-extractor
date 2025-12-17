@@ -7,7 +7,7 @@ This directory contains examples of using `olm-extractor` as a Kustomize generat
 The [basic](./basic/) example demonstrates extracting manifests from a bundle image:
 
 ```bash
-kubectl kustomize docs/examples/kustomize/basic
+kustomize build --enable-alpha-plugins docs/examples/kustomize/basic
 ```
 
 ## API Reference
@@ -395,7 +395,7 @@ If you encounter authentication errors:
 Check the Kustomize logs for error messages:
 
 ```bash
-kubectl kustomize docs/examples/kustomize/basic --enable-alpha-plugins 2>&1
+kustomize build --enable-alpha-plugins docs/examples/kustomize/basic 2>&1
 ```
 
 Common issues:
