@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
@@ -63,44 +64,24 @@ func ExtractWebhookServiceInfo(obj *unstructured.Unstructured) *WebhookInfo {
 // AddWebhookAnnotation adds an annotation to webhook configurations.
 // Returns a new unstructured object with the annotation added.
 func AddWebhookAnnotation(webhook *unstructured.Unstructured, key string, value string) (*unstructured.Unstructured, error) {
-	switch webhook.GroupVersionKind() {
-	case gvks.ValidatingWebhookConfiguration:
-		var vwc admissionregistrationv1.ValidatingWebhookConfiguration
-		if err := FromUnstructured(webhook, &vwc); err != nil {
-			return nil, fmt.Errorf("failed to convert validating webhook: %w", err)
-		}
-
-		if vwc.Annotations == nil {
-			vwc.Annotations = make(map[string]string)
-		}
-		vwc.Annotations[key] = value
-
-		u, err := ToUnstructured(&vwc)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert validating webhook to unstructured: %w", err)
-		}
-
-		return u, nil
-
-	case gvks.MutatingWebhookConfiguration:
-		var mwc admissionregistrationv1.MutatingWebhookConfiguration
-		if err := FromUnstructured(webhook, &mwc); err != nil {
-			return nil, fmt.Errorf("failed to convert mutating webhook: %w", err)
-		}
-
-		if mwc.Annotations == nil {
-			mwc.Annotations = make(map[string]string)
-		}
-		mwc.Annotations[key] = value
-
-		u, err := ToUnstructured(&mwc)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert mutating webhook to unstructured: %w", err)
-		}
-
-		return u, nil
-
-	default:
+	// Only process webhook configurations
+	gvk := webhook.GroupVersionKind()
+	if gvk != gvks.ValidatingWebhookConfiguration && gvk != gvks.MutatingWebhookConfiguration {
 		return webhook, nil
 	}
+
+	// Use meta.Accessor to work with annotations generically
+	accessor, err := meta.Accessor(webhook)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access webhook metadata: %w", err)
+	}
+
+	annotations := accessor.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[key] = value
+	accessor.SetAnnotations(annotations)
+
+	return webhook, nil
 }
