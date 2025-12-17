@@ -57,15 +57,3 @@ func ExtractWebhookServiceInfo(obj *unstructured.Unstructured) *WebhookInfo {
 
 	return nil
 }
-
-// AddWebhookAnnotation adds an annotation to webhook configurations.
-// Returns a new unstructured object with the annotation added.
-func AddWebhookAnnotation(webhook *unstructured.Unstructured, key string, value string) (*unstructured.Unstructured, error) {
-	// Only process webhook configurations
-	if IsWebhookConfiguration(webhook) {
-		SetAnnotation(webhook, key, value)
-		return webhook, nil
-	}
-
-	return webhook, nil
-}

@@ -259,11 +259,8 @@ func processWebhooks(
 
 		// Add cert-manager annotation to webhook
 		annotationValue := namespace + "/" + certName
-		annotatedWebhook, err := kube.AddWebhookAnnotation(obj, certmanagerv1.WantInjectAnnotation, annotationValue)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to configure webhook %s: %w", obj.GetName(), err)
-		}
-		result = append(result, annotatedWebhook)
+		kube.SetAnnotation(obj, certmanagerv1.WantInjectAnnotation, annotationValue)
+		result = append(result, obj)
 
 		// Ensure service exists (only add once if shared by multiple webhooks)
 		if !processedServices[info.ServiceName] {
