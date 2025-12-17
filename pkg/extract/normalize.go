@@ -4,10 +4,12 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -62,13 +64,20 @@ func buildNameMapping(objects []runtime.Object) *nameMapping {
 // extractBaseNames finds the deployment and service account names from the objects.
 func extractBaseNames(objects []runtime.Object, mapping *nameMapping) {
 	for _, obj := range objects {
-		switch typed := obj.(type) {
-		case *appsv1.Deployment:
-			mapping.deploymentName = typed.Name
-		case *corev1.ServiceAccount:
+		metaObj, err := meta.Accessor(obj)
+		if err != nil {
+			continue
+		}
+
+		gvk := obj.GetObjectKind().GroupVersionKind()
+
+		switch gvk {
+		case gvks.Deployment:
+			mapping.deploymentName = metaObj.GetName()
+		case gvks.ServiceAccount:
 			// Use the first service account as the base name
 			if mapping.serviceAccountName == "" {
-				mapping.serviceAccountName = typed.Name
+				mapping.serviceAccountName = metaObj.GetName()
 			}
 		}
 	}
@@ -97,34 +106,38 @@ func buildResourceMappings(objects []runtime.Object, mapping *nameMapping) {
 	clusterRoleBindingCount := 0
 
 	for _, obj := range objects {
-		switch typed := obj.(type) {
-		case *rbacv1.Role:
-			if isOLMGeneratedName(typed.Name) {
-				newName := generateResourceName(baseName, "role", roleCount)
-				mapping.oldToNew[resourceKey{name: typed.Name, kind: "Role"}] = newName
-				roleCount++
-			}
+		metaObj, err := meta.Accessor(obj)
+		if err != nil {
+			continue
+		}
 
-		case *rbacv1.RoleBinding:
-			if isOLMGeneratedName(typed.Name) {
-				newName := generateResourceName(baseName, "rolebinding", roleBindingCount)
-				mapping.oldToNew[resourceKey{name: typed.Name, kind: "RoleBinding"}] = newName
-				roleBindingCount++
-			}
+		name := metaObj.GetName()
+		if !isOLMGeneratedName(name) {
+			continue
+		}
 
-		case *rbacv1.ClusterRole:
-			if isOLMGeneratedName(typed.Name) {
-				newName := generateResourceName(baseName, "clusterrole", clusterRoleCount)
-				mapping.oldToNew[resourceKey{name: typed.Name, kind: "ClusterRole"}] = newName
-				clusterRoleCount++
-			}
+		gvk := obj.GetObjectKind().GroupVersionKind()
 
-		case *rbacv1.ClusterRoleBinding:
-			if isOLMGeneratedName(typed.Name) {
-				newName := generateResourceName(baseName, "clusterrolebinding", clusterRoleBindingCount)
-				mapping.oldToNew[resourceKey{name: typed.Name, kind: "ClusterRoleBinding"}] = newName
-				clusterRoleBindingCount++
-			}
+		switch gvk {
+		case gvks.Role:
+			newName := generateResourceName(baseName, "role", roleCount)
+			mapping.oldToNew[resourceKey{name: name, kind: "Role"}] = newName
+			roleCount++
+
+		case gvks.RoleBinding:
+			newName := generateResourceName(baseName, "rolebinding", roleBindingCount)
+			mapping.oldToNew[resourceKey{name: name, kind: "RoleBinding"}] = newName
+			roleBindingCount++
+
+		case gvks.ClusterRole:
+			newName := generateResourceName(baseName, "clusterrole", clusterRoleCount)
+			mapping.oldToNew[resourceKey{name: name, kind: "ClusterRole"}] = newName
+			clusterRoleCount++
+
+		case gvks.ClusterRoleBinding:
+			newName := generateResourceName(baseName, "clusterrolebinding", clusterRoleBindingCount)
+			mapping.oldToNew[resourceKey{name: name, kind: "ClusterRoleBinding"}] = newName
+			clusterRoleBindingCount++
 		}
 	}
 }
@@ -161,27 +174,43 @@ func applyNameMapping(objects []runtime.Object, mapping *nameMapping) []runtime.
 
 // normalizeObject normalizes a single object's name and cross-references.
 func normalizeObject(obj runtime.Object, mapping *nameMapping) runtime.Object {
-	// Try type assertions directly first (more reliable than GVK for typed objects)
-	switch typed := obj.(type) {
-	case *rbacv1.Role:
-		return normalizeRole(typed, mapping)
-	case *rbacv1.RoleBinding:
-		return normalizeRoleBinding(typed, mapping)
-	case *rbacv1.ClusterRole:
-		return normalizeClusterRole(typed, mapping)
-	case *rbacv1.ClusterRoleBinding:
-		return normalizeClusterRoleBinding(typed, mapping)
-	case *corev1.ServiceAccount:
-		return normalizeServiceAccount(typed, mapping)
-	case *appsv1.Deployment:
-		return normalizeDeployment(typed, mapping)
-	case *admissionregistrationv1.ValidatingWebhookConfiguration:
-		return normalizeValidatingWebhook(typed, mapping)
-	case *admissionregistrationv1.MutatingWebhookConfiguration:
-		return normalizeMutatingWebhook(typed, mapping)
-	default:
-		return obj
+	gvk := obj.GetObjectKind().GroupVersionKind()
+	switch gvk {
+	case gvks.Role:
+		if role, ok := obj.(*rbacv1.Role); ok {
+			return normalizeRole(role, mapping)
+		}
+	case gvks.RoleBinding:
+		if rb, ok := obj.(*rbacv1.RoleBinding); ok {
+			return normalizeRoleBinding(rb, mapping)
+		}
+	case gvks.ClusterRole:
+		if cr, ok := obj.(*rbacv1.ClusterRole); ok {
+			return normalizeClusterRole(cr, mapping)
+		}
+	case gvks.ClusterRoleBinding:
+		if crb, ok := obj.(*rbacv1.ClusterRoleBinding); ok {
+			return normalizeClusterRoleBinding(crb, mapping)
+		}
+	case gvks.ServiceAccount:
+		if sa, ok := obj.(*corev1.ServiceAccount); ok {
+			return normalizeServiceAccount(sa, mapping)
+		}
+	case gvks.Deployment:
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			return normalizeDeployment(dep, mapping)
+		}
+	case gvks.ValidatingWebhookConfiguration:
+		if vwc, ok := obj.(*admissionregistrationv1.ValidatingWebhookConfiguration); ok {
+			return normalizeValidatingWebhook(vwc, mapping)
+		}
+	case gvks.MutatingWebhookConfiguration:
+		if mwc, ok := obj.(*admissionregistrationv1.MutatingWebhookConfiguration); ok {
+			return normalizeMutatingWebhook(mwc, mapping)
+		}
 	}
+
+	return obj
 }
 
 // normalizeServiceAccount normalizes a ServiceAccount's name.
