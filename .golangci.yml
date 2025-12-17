@@ -34,7 +34,15 @@ linters:
       # Mock implementations
       - path: 'pkg/kube/gvks/.*\.go$'
         linters:
-          - gochecknoglobals  
+          - gochecknoglobals
+      # API types - omitempty on nested structs is standard Kubernetes pattern
+      - path: 'pkg/api/v1alpha1/.*\.go$'
+        linters:
+          - modernize  # Allow omitempty on nested struct fields (common in K8s APIs)
+      # KRM function - errors written to ResourceList, not wrapped
+      - path: 'cmd/krm/.*\.go$'
+        linters:
+          - wrapcheck  # Errors are added to ResourceList.Results, not wrapped
   settings:
     cyclop:
       max-complexity: 15  # Increased from default 10
