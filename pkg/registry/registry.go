@@ -100,13 +100,18 @@ func ExtractImage(ctx context.Context, imageRef string, opts ...Option) (Resourc
 		return resource, fmt.Errorf("failed to parse image reference %q: %w", imageRef, err)
 	}
 
-	// Build remote options
-	remoteOpts := []remote.Option{
-		remote.WithAuthFromKeychain(buildAuthenticator(cfg.username, cfg.password)),
-		remote.WithContext(ctx),
+	remoteOpts := []remote.Option{remote.WithContext(ctx)}
+
+	if cfg.username != "" && cfg.password != "" {
+		remoteOpts = append(remoteOpts, remote.WithAuth(&authn.Basic{
+			Username: cfg.username,
+			Password: cfg.password,
+		}))
+	} else {
+		// DefaultKeychain reads from Docker config, credential helpers, and platform keychains
+		remoteOpts = append(remoteOpts, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	}
 
-	// Configure transport for insecure connections
 	if cfg.insecure {
 		remoteOpts = append(remoteOpts, remote.WithTransport(remote.DefaultTransport))
 	}
@@ -127,35 +132,4 @@ func ExtractImage(ctx context.Context, imageRef string, opts ...Option) (Resourc
 	}
 
 	return resource, nil
-}
-
-// buildAuthenticator creates an authentication keychain based on the provided credentials.
-// If explicit credentials are provided, uses them. Otherwise, uses the default keychain
-// which automatically reads from ~/.docker/config.json and uses platform keychains.
-func buildAuthenticator(username string, password string) authn.Keychain {
-	if username != "" && password != "" {
-		// Use explicit credentials via a custom keychain
-		return &staticKeychain{
-			auth: &authn.Basic{
-				Username: username,
-				Password: password,
-			},
-		}
-	}
-
-	// Use default keychain:
-	// - Reads from ~/.docker/config.json
-	// - Supports Docker credential helpers (osxkeychain, gcr, ecr-login, etc.)
-	// - Uses platform keychain (macOS Keychain, Windows Credential Manager, etc.)
-	return authn.DefaultKeychain
-}
-
-// staticKeychain implements authn.Keychain for static credentials.
-type staticKeychain struct {
-	auth authn.Authenticator
-}
-
-// Resolve implements authn.Keychain.
-func (s *staticKeychain) Resolve(_ authn.Resource) (authn.Authenticator, error) {
-	return s.auth, nil
 }
