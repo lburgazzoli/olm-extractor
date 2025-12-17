@@ -143,6 +143,41 @@ case "Deployment":  // Don't hardcode strings
 }
 ```
 
+### Context Usage
+
+When working with `context.Context`:
+
+- **Always pass `context.Context` as the first parameter** to functions that:
+  - Make network calls
+  - Access external services (container registries, catalogs)
+  - Perform I/O operations
+  - Call other functions that need context
+- **Never use `context.Background()` or `context.TODO()`** in package code (only acceptable at entry points like `main()` or test functions)
+- **Thread context from Cobra command**: Use `cmd.Context()` to get the root context with signal handling
+- **Enable context linters**: The following linters enforce proper context usage:
+  - `contextcheck` - Detects non-inherited context usage
+  - `noctx` - Detects HTTP requests without context
+  - `containedctx` - Prevents storing context in structs
+  - `fatcontext` - Detects nested contexts in loops
+
+**Good:**
+```go
+func Load(ctx context.Context, input string, config RegistryConfig) error {
+    // Use the passed context
+    return someOperation(ctx, input)
+}
+```
+
+**Bad:**
+```go
+func Load(input string, config RegistryConfig) error {
+    ctx := context.Background()  // ❌ Don't create new contexts
+    return someOperation(ctx, input)
+}
+```
+
+**Note:** Third-party libraries may have their own context APIs (e.g., `remote.WithContext(ctx)`). Adapt to their patterns while keeping our functions following Go conventions.
+
 ## Linting
 
 Uses golangci-lint v2 with configuration in `.golangci.yml`. Key enabled linters:

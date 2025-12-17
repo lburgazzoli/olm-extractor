@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -133,7 +134,8 @@ func main() {
 		Version:      fmt.Sprintf("%s (commit: %s, built: %s)", version.Version, version.Commit, version.Date),
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
 			input := args[0]
 
 			// Unmarshal configuration from viper (supports both flags and env vars)
@@ -153,7 +155,7 @@ func main() {
 				}
 			}
 
-			return extractAndRender(input, cfg)
+			return extractAndRender(ctx, input, cfg)
 		},
 	}
 
@@ -185,9 +187,10 @@ func main() {
 }
 
 // extractAndRender orchestrates the extraction and rendering pipeline.
-func extractAndRender(input string, cfg Config) error {
+func extractAndRender(ctx context.Context, input string, cfg Config) error {
 	// Phase 1: Resolve bundle source
 	bundleImageOrDir, err := catalog.ResolveBundleSource(
+		ctx,
 		input,
 		cfg.Catalog,
 		cfg.Channel,
@@ -199,7 +202,7 @@ func extractAndRender(input string, cfg Config) error {
 	}
 
 	// Phase 2: Load bundle
-	b, err := bundle.Load(bundleImageOrDir, cfg.Registry, cfg.TempDir)
+	b, err := bundle.Load(ctx, bundleImageOrDir, cfg.Registry, cfg.TempDir)
 	if err != nil {
 		return fmt.Errorf("failed to load bundle: %w", err)
 	}

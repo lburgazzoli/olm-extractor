@@ -23,6 +23,7 @@ type Config struct {
 // In catalog mode (catalogImage is non-empty), resolves package[:version] to a bundle image.
 // In direct mode (catalogImage is empty), returns input as-is (directory path or image reference).
 func ResolveBundleSource(
+	ctx context.Context,
 	input string,
 	catalogImage string,
 	channel string,
@@ -39,7 +40,7 @@ func ResolveBundleSource(
 			Channel:      channel,
 		}
 
-		bundleImage, err := ResolveBundleImage(cfg, registryConfig, tempDir)
+		bundleImage, err := ResolveBundleImage(ctx, cfg, registryConfig, tempDir)
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve bundle from catalog: %w", err)
 		}
@@ -73,16 +74,16 @@ func getCatalogPathPrefixes() []string {
 // ResolveBundleImage resolves a package reference to a bundle image reference.
 // It pulls the catalog image, parses the FBC format, finds the requested package/version,
 // and returns the bundle image reference.
-func ResolveBundleImage(config Config, registryConfig bundle.RegistryConfig, tempDir string) (string, error) {
+func ResolveBundleImage(ctx context.Context, config Config, registryConfig bundle.RegistryConfig, tempDir string) (string, error) {
 	// Pull and extract catalog image with catalog-specific path prefixes
-	bundleResource, err := bundle.ExtractImage(config.CatalogImage, registryConfig, tempDir, getCatalogPathPrefixes())
+	bundleResource, err := bundle.ExtractImage(ctx, config.CatalogImage, registryConfig, tempDir, getCatalogPathPrefixes())
 	if err != nil {
 		return "", fmt.Errorf("failed to extract catalog image: %w", err)
 	}
 	defer bundleResource.Cleanup()
 
 	// Load FBC from extracted directory
-	catalog, err := loadCatalog(bundleResource.Dir())
+	catalog, err := loadCatalog(ctx, bundleResource.Dir())
 	if err != nil {
 		return "", fmt.Errorf("failed to load catalog: %w", err)
 	}
@@ -125,11 +126,11 @@ func ResolveBundleImage(config Config, registryConfig bundle.RegistryConfig, tem
 
 // loadCatalog loads the FBC declarative config from a directory.
 // Catalog images typically have FBC files in a `/configs` subdirectory.
-func loadCatalog(dir string) (*declcfg.DeclarativeConfig, error) {
+func loadCatalog(ctx context.Context, dir string) (*declcfg.DeclarativeConfig, error) {
 	// Try loading from /configs subdirectory first (common for catalog images)
 	configsDir := dir + "/configs"
 	if info, err := os.Stat(configsDir); err == nil && info.IsDir() {
-		cfg, err := declcfg.LoadFS(context.Background(), os.DirFS(configsDir))
+		cfg, err := declcfg.LoadFS(ctx, os.DirFS(configsDir))
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse catalog from configs directory: %w", err)
 		}
@@ -138,7 +139,7 @@ func loadCatalog(dir string) (*declcfg.DeclarativeConfig, error) {
 	}
 
 	// Fallback to root directory
-	cfg, err := declcfg.LoadFS(context.Background(), os.DirFS(dir))
+	cfg, err := declcfg.LoadFS(ctx, os.DirFS(dir))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse catalog: %w", err)
 	}

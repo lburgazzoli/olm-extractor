@@ -77,14 +77,13 @@ func WithPathPrefixes(prefixes []string) Option {
 // ExtractImage pulls a container image and extracts it to a temporary directory.
 // Returns a Resource containing all created resources.
 // On error, returns a partial Resource that is safe to clean up.
-func ExtractImage(imageRef string, opts ...Option) (Resource, error) {
+func ExtractImage(ctx context.Context, imageRef string, opts ...Option) (Resource, error) {
 	// Apply options
 	cfg := options{}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 
-	ctx := context.Background()
 	resource := Resource{}
 
 	// Create temporary directory for unpacked image

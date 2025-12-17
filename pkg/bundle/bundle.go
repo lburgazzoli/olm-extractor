@@ -1,6 +1,7 @@
 package bundle
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -40,8 +41,8 @@ func (br *BundleResource) Cleanup() {
 // Load loads an OLM bundle from a directory path or container image reference.
 // For image references, temporary files are automatically cleaned up after loading.
 // tempDir specifies where temporary files should be created (empty string uses system default).
-func Load(input string, config RegistryConfig, tempDir string) (*manifests.Bundle, error) {
-	resource, err := resolve(input, config, tempDir)
+func Load(ctx context.Context, input string, config RegistryConfig, tempDir string) (*manifests.Bundle, error) {
+	resource, err := resolve(ctx, input, config, tempDir)
 	defer resource.Cleanup()
 
 	if err != nil {
@@ -64,7 +65,7 @@ func getBundlePathPrefixes() []string {
 // resolve resolves the input to a BundleResource.
 // If input is a directory, returns a BundleResource with only dir set.
 // If input is a container image reference, pulls and extracts it to a temp directory.
-func resolve(input string, config RegistryConfig, tempDir string) (BundleResource, error) {
+func resolve(ctx context.Context, input string, config RegistryConfig, tempDir string) (BundleResource, error) {
 	info, err := os.Stat(input)
 	if err == nil && info.IsDir() {
 		// Input is already a directory, return resource with only dir set
@@ -73,7 +74,7 @@ func resolve(input string, config RegistryConfig, tempDir string) (BundleResourc
 	}
 
 	// Input is an image reference, extract it with bundle-specific path prefixes
-	return ExtractImage(input, config, tempDir, getBundlePathPrefixes())
+	return ExtractImage(ctx, input, config, tempDir, getBundlePathPrefixes())
 }
 
 // ExtractImage pulls a container image and extracts it to a temporary directory.
@@ -81,6 +82,7 @@ func resolve(input string, config RegistryConfig, tempDir string) (BundleResourc
 // On error, returns a partial BundleResource that is safe to clean up.
 // This is exported for use by the catalog package.
 func ExtractImage(
+	ctx context.Context,
 	imageRef string,
 	config RegistryConfig,
 	tempDir string,
@@ -101,7 +103,7 @@ func ExtractImage(
 	}
 
 	// Extract image using registry package
-	resource, err := registry.ExtractImage(imageRef, opts...)
+	resource, err := registry.ExtractImage(ctx, imageRef, opts...)
 	if err != nil {
 		return BundleResource{}, fmt.Errorf("failed to extract image: %w", err)
 	}
