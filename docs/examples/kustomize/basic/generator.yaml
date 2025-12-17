@@ -5,7 +5,7 @@ metadata:
   annotations:
     config.kubernetes.io/function: |
       container:
-        image: quay.io/lburgazzoli/olm-extractor:latest
+        image: quay.io/lburgazzoli/olm-extractor:4c94707-dirty
 spec:
   source: quay.io/lburgazzoli/opendatahub-operator-bundle:vanilla
   namespace: opendatahub

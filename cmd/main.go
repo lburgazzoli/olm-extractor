@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -21,10 +20,13 @@ This tool can operate in two modes:
    Extract manifests and output YAML to stdout for direct kubectl pipelines.
    Supports all configuration via flags and environment variables.
 
-2. KRM Function Mode (krm subcommand):
+2. KRM Function Mode:
    Operate as a Kustomize generator, reading ResourceList from stdin
    and writing generated manifests to stdout. Configuration comes from
    the functionConfig in the ResourceList.
+
+   KRM mode is automatically activated when data is piped to stdin,
+   or can be explicitly invoked using the 'krm' subcommand.
 
 Registry authentication uses standard Docker credentials from ~/.docker/config.json and
 supports Docker credential helpers (osxkeychain on macOS, etc.) for automatic keychain integration.
@@ -43,18 +45,17 @@ func main() {
 			// Auto-detect KRM mode: if stdin is not a terminal (has piped data),
 			// assume we're being called by Kustomize and run in KRM mode
 			stat, err := os.Stdin.Stat()
-			if err == nil && (stat.Mode()&os.ModeCharDevice) == 0 {
-				// Stdin is a pipe or file (not a terminal) - run in KRM mode
-				if err := krmexec.Execute(context.Background(), os.Stdin, os.Stdout); err != nil {
-					_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-					os.Exit(1)
-				}
-
+			if err != nil || (stat.Mode()&os.ModeCharDevice) != 0 {
+				// No stdin data - show help
+				_ = cmd.Help()
 				return
 			}
 
-			// No stdin data - show help
-			_ = cmd.Help()
+			// Stdin is a pipe or file (not a terminal) - run in KRM mode
+			if err := krmexec.Execute(cmd.Context(), os.Stdin, os.Stdout); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 		},
 	}
 
