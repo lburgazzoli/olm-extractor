@@ -9,7 +9,6 @@ import (
 	"github.com/lburgazzoli/olm-extractor/cmd/krm"
 	"github.com/lburgazzoli/olm-extractor/cmd/run"
 	"github.com/lburgazzoli/olm-extractor/internal/version"
-	krmexec "github.com/lburgazzoli/olm-extractor/pkg/krm"
 )
 
 const rootLongDescription = `Extract Kubernetes manifests from OLM bundles for direct installation via kubectl.
@@ -20,13 +19,10 @@ This tool can operate in two modes:
    Extract manifests and output YAML to stdout for direct kubectl pipelines.
    Supports all configuration via flags and environment variables.
 
-2. KRM Function Mode:
+2. KRM Function Mode (krm subcommand):
    Operate as a Kustomize generator, reading ResourceList from stdin
    and writing generated manifests to stdout. Configuration comes from
    the functionConfig in the ResourceList.
-
-   KRM mode is automatically activated when data is piped to stdin,
-   or can be explicitly invoked using the 'krm' subcommand.
 
 Registry authentication uses standard Docker credentials from ~/.docker/config.json and
 supports Docker credential helpers (osxkeychain on macOS, etc.) for automatic keychain integration.
@@ -41,23 +37,6 @@ func main() {
 		Short:   "Extract Kubernetes manifests from OLM bundles",
 		Long:    rootLongDescription,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version.Version, version.Commit, version.Date),
-		Run: func(cmd *cobra.Command, _ []string) {
-			// Auto-detect KRM mode: if stdin is not a terminal (has piped data),
-			// assume we're being called by Kustomize and run in KRM mode
-			stat, err := os.Stdin.Stat()
-			if err != nil || (stat.Mode()&os.ModeCharDevice) != 0 {
-				// No stdin data - show help
-				_ = cmd.Help()
-
-				return
-			}
-
-			// Stdin is a pipe or file (not a terminal) - run in KRM mode
-			if err := krmexec.Execute(cmd.Context(), os.Stdin, os.Stdout); err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-		},
 	}
 
 	// Add subcommands
