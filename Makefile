@@ -33,10 +33,15 @@ GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+# Platform for cross-compilation (defaults to current platform)
+GOOS ?= $(shell go env GOOS)
+GOARCH ?= $(shell go env GOARCH)
+
 # Build the binary
 .PHONY: build
 build:
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) cmd/main.go
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) cmd/main.go
 
 # Ensure buildx builder exists for multi-platform builds
 .PHONY: buildx-setup
