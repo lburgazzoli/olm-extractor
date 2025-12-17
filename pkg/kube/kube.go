@@ -52,12 +52,88 @@ func Convert[T runtime.Object](obj runtime.Object) (T, error) {
 
 // ToUnstructured converts a typed Kubernetes object to an Unstructured object.
 func ToUnstructured(obj any) (*unstructured.Unstructured, error) {
+	// Fast path: already unstructured
+	if u, ok := obj.(*unstructured.Unstructured); ok {
+		return u, nil
+	}
+
 	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to unstructured: %w", err)
 	}
 
 	return &unstructured.Unstructured{Object: unstructuredMap}, nil
+}
+
+// CleanUnstructured removes nil values and empty maps/slices from an Unstructured object.
+// Returns a new Unstructured object with cleaned data.
+func CleanUnstructured(obj *unstructured.Unstructured) *unstructured.Unstructured {
+	cleaned := cleanMap(obj.Object)
+
+	return &unstructured.Unstructured{Object: cleaned}
+}
+
+// cleanMap recursively removes nil values and empty maps/slices from a map.
+func cleanMap(obj map[string]any) map[string]any {
+	result := make(map[string]any)
+
+	for key, value := range obj {
+		if cleaned := cleanValue(value); cleaned != nil {
+			result[key] = cleaned
+		}
+	}
+
+	return result
+}
+
+// cleanValue recursively cleans a value by removing nil and empty collections.
+func cleanValue(value any) any {
+	if value == nil {
+		return nil
+	}
+
+	switch v := value.(type) {
+	case map[string]any:
+		cleaned := cleanMap(v)
+		if len(cleaned) == 0 {
+			return nil
+		}
+
+		return cleaned
+	case []any:
+		if len(v) == 0 {
+			return nil
+		}
+
+		cleaned := make([]any, 0, len(v))
+
+		for _, item := range v {
+			// Preserve empty strings in arrays (e.g. apiGroups: [""] = core API in Kubernetes)
+			if str, ok := item.(string); ok && str == "" {
+				cleaned = append(cleaned, "")
+
+				continue
+			}
+
+			if c := cleanValue(item); c != nil {
+				cleaned = append(cleaned, c)
+			}
+		}
+
+		if len(cleaned) == 0 {
+			return nil
+		}
+
+		return cleaned
+	case string:
+		if v == "" {
+			return nil
+		}
+
+		return v
+	default:
+		return value
+	}
 }
 
 // FromUnstructured converts an Unstructured object to a typed Kubernetes object.

@@ -188,7 +188,7 @@ func execute(ctx context.Context, input string) error {
 	}
 
 	// Phase 6: Render output as YAML
-	if err := render.YAMLFromUnstructured(os.Stdout, unstructuredObjects); err != nil {
+	if err := render.YAML(os.Stdout, unstructuredObjects); err != nil {
 		return fmt.Errorf("failed to render YAML: %w", err)
 	}
 

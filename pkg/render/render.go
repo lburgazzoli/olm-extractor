@@ -6,120 +6,34 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 )
 
 const yamlIndent = 2
 
-// YAML writes the given runtime.Objects to the writer as a multi-document YAML stream.
-func YAML(w io.Writer, objects []runtime.Object) error {
+// YAML writes runtime.Objects to the writer as a multi-document YAML stream.
+// Accepts any slice type that satisfies runtime.Object constraint.
+func YAML[T runtime.Object](w io.Writer, objects []T) error {
 	encoder := yaml.NewEncoder(w)
 	encoder.SetIndent(yamlIndent)
 
 	defer func() { _ = encoder.Close() }()
 
 	for _, obj := range objects {
-		cleaned, err := ToUnstructured(obj)
+		// Convert to unstructured (fast path if already unstructured)
+		u, err := kube.ToUnstructured(obj)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to convert object: %w", err)
 		}
 
-		if err := encoder.Encode(cleaned); err != nil {
+		// Clean and encode
+		cleaned := kube.CleanUnstructured(u)
+		if err := encoder.Encode(cleaned.Object); err != nil {
 			return fmt.Errorf("failed to encode object to YAML: %w", err)
 		}
 	}
 
 	return nil
-}
-
-// YAMLFromUnstructured writes the given Unstructured objects to the writer as a multi-document YAML stream.
-func YAMLFromUnstructured(w io.Writer, objects []*unstructured.Unstructured) error {
-	encoder := yaml.NewEncoder(w)
-	encoder.SetIndent(yamlIndent)
-
-	defer func() { _ = encoder.Close() }()
-
-	for _, obj := range objects {
-		cleaned := CleanUnstructured(obj.Object)
-
-		if err := encoder.Encode(cleaned); err != nil {
-			return fmt.Errorf("failed to encode object to YAML: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// ToUnstructured converts a runtime.Object to an unstructured map and removes nil/empty fields.
-func ToUnstructured(obj runtime.Object) (map[string]any, error) {
-	unstructuredMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert object to unstructured: %w", err)
-	}
-
-	return CleanUnstructured(unstructuredMap), nil
-}
-
-// CleanUnstructured recursively removes nil values and empty maps/slices from the object.
-func CleanUnstructured(obj map[string]any) map[string]any {
-	result := make(map[string]any)
-
-	for key, value := range obj {
-		cleaned := cleanValue(value)
-		if cleaned != nil {
-			result[key] = cleaned
-		}
-	}
-
-	return result
-}
-
-func cleanValue(value any) any {
-	if value == nil {
-		return nil
-	}
-
-	switch v := value.(type) {
-	case map[string]any:
-		cleaned := CleanUnstructured(v)
-		if len(cleaned) == 0 {
-			return nil
-		}
-
-		return cleaned
-	case []any:
-		if len(v) == 0 {
-			return nil
-		}
-
-		cleaned := make([]any, 0, len(v))
-
-		for _, item := range v {
-			// Preserve empty strings in arrays (e.g. apiGroups: [""] = core API in Kubernetes)
-			if str, ok := item.(string); ok && str == "" {
-				cleaned = append(cleaned, "")
-
-				continue
-			}
-
-			if c := cleanValue(item); c != nil {
-				cleaned = append(cleaned, c)
-			}
-		}
-
-		if len(cleaned) == 0 {
-			return nil
-		}
-
-		return cleaned
-	case string:
-		if v == "" {
-			return nil
-		}
-
-		return v
-	default:
-		return value
-	}
 }
