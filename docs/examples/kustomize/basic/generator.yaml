@@ -6,7 +6,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
 spec:
   source: quay.io/lburgazzoli/opendatahub-operator-bundle:vanilla
   namespace: opendatahub

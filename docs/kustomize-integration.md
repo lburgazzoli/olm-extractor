@@ -53,7 +53,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
 spec:
   source: quay.io/example/operator:v1.0.0
   namespace: operators
@@ -102,7 +102,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
 spec:
   # Source is the bundle image
   source: quay.io/example/operator:v1.0.0
@@ -143,7 +143,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
 spec:
   # Source is the package name (optionally with version)
   source: prometheus:0.56.0
@@ -172,8 +172,8 @@ annotations:
       # Container image to use
       image: quay.io/lburgazzoli/olm-extractor:latest
       
-      # Arguments to pass to the container entrypoint
-      args: ["krm"]
+      # Command to execute in the container
+      command: ["bundle-extract", "krm"]
       
       # Optional: Environment variables
       env:
@@ -512,7 +512,7 @@ If `kustomize build` produces no resources:
      config.kubernetes.io/function: |  # Note the | for multiline
        container:
          image: quay.io/lburgazzoli/olm-extractor:latest
-         args: ["krm"]
+         command: ["bundle-extract", "krm"]
    ```
 
 3. **Ensure spec fields are present:**

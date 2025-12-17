@@ -23,7 +23,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
 spec:
   # Source: bundle image OR package[:version] (depending on mode)
   source: quay.io/example/operator-bundle:v1.0.0
@@ -72,7 +72,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
 spec:
   source: quay.io/example/operator-bundle:v1.0.0
   namespace: operators
@@ -91,7 +91,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
 spec:
   source: prometheus:0.56.0  # package:version
   catalog:
@@ -115,7 +115,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
         mounts:
           - type: bind
             src: ~/.docker/config.json
@@ -141,7 +141,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
         env:
           - BUNDLE_EXTRACT_REGISTRY_USERNAME=myuser
           - BUNDLE_EXTRACT_REGISTRY_PASSWORD=mypass
@@ -364,7 +364,7 @@ metadata:
     config.kubernetes.io/function: |
       container:
         image: quay.io/lburgazzoli/olm-extractor:latest
-        args: ["krm"]
+        command: ["bundle-extract", "krm"]
         mounts:
           - type: bind
             src: ~/.docker/config.json
