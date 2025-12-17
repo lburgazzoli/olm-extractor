@@ -1,10 +1,7 @@
 package kube
 
 import (
-	"fmt"
-
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
@@ -65,23 +62,10 @@ func ExtractWebhookServiceInfo(obj *unstructured.Unstructured) *WebhookInfo {
 // Returns a new unstructured object with the annotation added.
 func AddWebhookAnnotation(webhook *unstructured.Unstructured, key string, value string) (*unstructured.Unstructured, error) {
 	// Only process webhook configurations
-	gvk := webhook.GroupVersionKind()
-	if gvk != gvks.ValidatingWebhookConfiguration && gvk != gvks.MutatingWebhookConfiguration {
+	if IsWebhookConfiguration(webhook) {
+		SetAnnotation(webhook, key, value)
 		return webhook, nil
 	}
-
-	// Use meta.Accessor to work with annotations generically
-	accessor, err := meta.Accessor(webhook)
-	if err != nil {
-		return nil, fmt.Errorf("failed to access webhook metadata: %w", err)
-	}
-
-	annotations := accessor.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	}
-	annotations[key] = value
-	accessor.SetAnnotations(annotations)
 
 	return webhook, nil
 }
