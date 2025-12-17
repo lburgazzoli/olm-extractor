@@ -18,17 +18,15 @@ LINT_TIMEOUT := 10m
 
 # Container registry configuration
 CONTAINER_REGISTRY ?= quay.io
-KO_DOCKER_REPO ?= $(CONTAINER_REGISTRY)/lburgazzoli/olm-extractor
-KO_PLATFORMS ?= linux/amd64,linux/arm64
-KO_TAGS ?= $(VERSION)
+CONTAINER_REPO ?= $(CONTAINER_REGISTRY)/lburgazzoli/olm-extractor
+CONTAINER_PLATFORMS ?= linux/amd64,linux/arm64
+CONTAINER_TAGS ?= $(VERSION)
 
 ## Tools
 GOLANGCI_VERSION ?= v2.7.2
 GOLANGCI ?= go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 GOVULNCHECK_VERSION ?= latest
 GOVULNCHECK ?= go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
-KO_VERSION ?= latest
-KO ?= go run github.com/google/ko@$(KO_VERSION)
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -40,16 +38,26 @@ SHELL = /usr/bin/env bash -o pipefail
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) cmd/main.go
 
-# Build and push container image (ldflags configured in .ko.yaml)
+# Ensure buildx builder exists for multi-platform builds
+.PHONY: buildx-setup
+buildx-setup:
+	@docker buildx inspect multiplatform >/dev/null 2>&1 || \
+		(echo "Creating buildx builder for multi-platform builds..." && \
+		 docker buildx create --name multiplatform --driver docker-container --bootstrap --use)
+
+# Build and push container image using Docker buildx
 .PHONY: publish
-publish:
-	@echo "Building and pushing container image to $(KO_DOCKER_REPO):$(KO_TAGS)"
-	@VERSION=$(VERSION) COMMIT=$(COMMIT) DATE=$(DATE) \
-		KO_DOCKER_REPO=$(KO_DOCKER_REPO) \
-		$(KO) build ./cmd \
-		--bare \
-		--tags=$(KO_TAGS) \
-		--platform=$(KO_PLATFORMS)
+publish: buildx-setup
+	@echo "Building and pushing container image to $(CONTAINER_REPO):$(CONTAINER_TAGS)"
+	docker buildx build \
+		--builder=multiplatform \
+		--platform=$(CONTAINER_PLATFORMS) \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg DATE=$(DATE) \
+		--tag=$(CONTAINER_REPO):$(CONTAINER_TAGS) \
+		--push \
+		.
 
 # Run the CLI
 .PHONY: run
@@ -103,7 +111,7 @@ test:
 help:
 	@echo "Available targets:"
 	@echo "  build       - Build the bundle-extract binary"
-	@echo "  publish     - Build and push container image using ko"
+	@echo "  publish     - Build and push container image using Docker buildx"
 	@echo "  run         - Run the CLI"
 	@echo "  tidy        - Tidy up Go module dependencies"
 	@echo "  clean       - Remove build artifacts and test cache"

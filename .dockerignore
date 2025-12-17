@@ -1,0 +1,29 @@
+# Build artifacts
+bin/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test artifacts
+*.test
+coverage.out
+
+# Temporary files
+*.tmp
+.DS_Store
+
