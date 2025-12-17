@@ -79,7 +79,10 @@ func collectResources(
 	objects = append(objects, webhooks...)
 
 	// Other resources from bundle
-	otherObjects := OtherResources(bundle, namespace)
+	otherObjects, err := OtherResources(bundle, namespace)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract other resources: %w", err)
+	}
 	objects = append(objects, otherObjects...)
 
 	return objects, nil
@@ -151,7 +154,11 @@ func applyFilters(
 
 	filtered := make([]*unstructured.Unstructured, 0, len(objects))
 	for _, obj := range objects {
-		if f.Matches(obj) {
+		matches, err := f.Matches(obj)
+		if err != nil {
+			return nil, fmt.Errorf("failed to apply filter to %s %s: %w", obj.GetKind(), obj.GetName(), err)
+		}
+		if matches {
 			filtered = append(filtered, obj)
 		}
 	}
@@ -429,7 +436,7 @@ func normalizeRBACRules(rules []rbacv1.PolicyRule) []rbacv1.PolicyRule {
 }
 
 // OtherResources extracts non-CRD, non-CSV resources from the bundle.
-func OtherResources(bundle *manifests.Bundle, namespace string) []runtime.Object {
+func OtherResources(bundle *manifests.Bundle, namespace string) ([]runtime.Object, error) {
 	objects := make([]runtime.Object, 0, len(bundle.Objects))
 
 	for _, obj := range bundle.Objects {
@@ -443,13 +450,15 @@ func OtherResources(bundle *manifests.Bundle, namespace string) []runtime.Object
 
 		// Set namespace for namespaced resources.
 		if kube.IsNamespaced(gvk) {
-			kube.SetNamespace(obj, namespace)
+			if err := kube.SetNamespace(obj, namespace); err != nil {
+				return nil, fmt.Errorf("failed to set namespace on %s: %w", gvk.Kind, err)
+			}
 		}
 
 		objects = append(objects, obj)
 	}
 
-	return objects
+	return objects, nil
 }
 
 // Webhooks extracts ValidatingWebhookConfiguration and MutatingWebhookConfiguration

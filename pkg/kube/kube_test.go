@@ -82,8 +82,9 @@ func TestSetNamespace(t *testing.T) {
 		g := NewWithT(t)
 
 		ns := kube.CreateNamespace("original")
-		kube.SetNamespace(ns, "updated")
+		err := kube.SetNamespace(ns, "updated")
 
+		g.Expect(err).ToNot(HaveOccurred())
 		// Namespace is cluster-scoped, but the function should still work
 		// on any object implementing metav1.Object
 		g.Expect(ns.Namespace).To(Equal("updated"))
@@ -118,36 +119,38 @@ func TestValidateNamespace(t *testing.T) {
 		g := NewWithT(t)
 
 		longName := "a123456789012345678901234567890123456789012345678901234567890123" // 64 chars
-		g.Expect(kube.ValidateNamespace(longName)).To(MatchError("namespace name too long (max 63 characters)"))
+		g.Expect(kube.ValidateNamespace(longName)).To(MatchError(ContainSubstring("must be no more than 63 characters")))
 	})
 
-	t.Run("rejects namespace starting with digit", func(t *testing.T) {
+	t.Run("accepts namespace starting with digit", func(t *testing.T) {
 		g := NewWithT(t)
-		g.Expect(kube.ValidateNamespace("1test")).To(MatchError("invalid namespace name: must start with a lowercase letter"))
+		// DNS-1123 labels allow names starting with digits
+		g.Expect(kube.ValidateNamespace("1test")).To(Succeed())
+		g.Expect(kube.ValidateNamespace("123-test")).To(Succeed())
 	})
 
 	t.Run("rejects namespace starting with dash", func(t *testing.T) {
 		g := NewWithT(t)
-		g.Expect(kube.ValidateNamespace("-test")).To(MatchError("invalid namespace name: must start with a lowercase letter"))
+		g.Expect(kube.ValidateNamespace("-test")).To(MatchError(ContainSubstring("must start and end with an alphanumeric character")))
 	})
 
 	t.Run("rejects namespace ending with dash", func(t *testing.T) {
 		g := NewWithT(t)
-		g.Expect(kube.ValidateNamespace("test-")).To(MatchError("invalid namespace name: must end with an alphanumeric character"))
+		g.Expect(kube.ValidateNamespace("test-")).To(MatchError(ContainSubstring("must start and end with an alphanumeric character")))
 	})
 
 	t.Run("rejects namespace with uppercase letters", func(t *testing.T) {
 		g := NewWithT(t)
-		g.Expect(kube.ValidateNamespace("Test")).To(MatchError("invalid namespace name: must consist of lowercase alphanumeric characters or '-'"))
+		g.Expect(kube.ValidateNamespace("Test")).To(MatchError(ContainSubstring("lower case alphanumeric characters")))
 	})
 
 	t.Run("rejects namespace with underscores", func(t *testing.T) {
 		g := NewWithT(t)
-		g.Expect(kube.ValidateNamespace("test_ns")).To(MatchError("invalid namespace name: must consist of lowercase alphanumeric characters or '-'"))
+		g.Expect(kube.ValidateNamespace("test_ns")).To(MatchError(ContainSubstring("lower case alphanumeric characters")))
 	})
 
 	t.Run("rejects namespace with dots", func(t *testing.T) {
 		g := NewWithT(t)
-		g.Expect(kube.ValidateNamespace("test.ns")).To(MatchError("invalid namespace name: must consist of lowercase alphanumeric characters or '-'"))
+		g.Expect(kube.ValidateNamespace("test.ns")).To(MatchError(ContainSubstring("must not contain dots")))
 	})
 }

@@ -54,7 +54,9 @@ func TestMatches_NoFilters(t *testing.T) {
 
 	obj := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app"}}}
 
-	g.Expect(f.Matches(obj)).To(BeTrue())
+	matches, err := f.Matches(obj)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
 }
 
 func TestMatches_ExcludeOnly(t *testing.T) {
@@ -67,9 +69,17 @@ func TestMatches_ExcludeOnly(t *testing.T) {
 	secret := &unstructured.Unstructured{Object: map[string]any{"kind": "Secret", "metadata": map[string]any{"name": "secret"}}}
 	service := &unstructured.Unstructured{Object: map[string]any{"kind": "Service", "metadata": map[string]any{"name": "svc"}}}
 
-	g.Expect(f.Matches(deployment)).To(BeTrue())
-	g.Expect(f.Matches(secret)).To(BeFalse())
-	g.Expect(f.Matches(service)).To(BeTrue())
+	matches, err := f.Matches(deployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
+
+	matches, err = f.Matches(secret)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
+
+	matches, err = f.Matches(service)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
 }
 
 func TestMatches_IncludeOnly(t *testing.T) {
@@ -82,9 +92,17 @@ func TestMatches_IncludeOnly(t *testing.T) {
 	secret := &unstructured.Unstructured{Object: map[string]any{"kind": "Secret", "metadata": map[string]any{"name": "secret"}}}
 	service := &unstructured.Unstructured{Object: map[string]any{"kind": "Service", "metadata": map[string]any{"name": "svc"}}}
 
-	g.Expect(f.Matches(deployment)).To(BeTrue())
-	g.Expect(f.Matches(secret)).To(BeFalse())
-	g.Expect(f.Matches(service)).To(BeFalse())
+	matches, err := f.Matches(deployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
+
+	matches, err = f.Matches(secret)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
+
+	matches, err = f.Matches(service)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
 }
 
 func TestMatches_MultipleIncludesActAsOR(t *testing.T) {
@@ -98,10 +116,21 @@ func TestMatches_MultipleIncludesActAsOR(t *testing.T) {
 	service := &unstructured.Unstructured{Object: map[string]any{"kind": "Service", "metadata": map[string]any{"name": "svc"}}}
 	configMap := &unstructured.Unstructured{Object: map[string]any{"kind": "ConfigMap", "metadata": map[string]any{"name": "config"}}}
 
-	g.Expect(f.Matches(deployment)).To(BeTrue())
-	g.Expect(f.Matches(secret)).To(BeFalse())
-	g.Expect(f.Matches(service)).To(BeTrue())
-	g.Expect(f.Matches(configMap)).To(BeFalse())
+	matches, err := f.Matches(deployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
+
+	matches, err = f.Matches(secret)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
+
+	matches, err = f.Matches(service)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
+
+	matches, err = f.Matches(configMap)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
 }
 
 func TestMatches_MultipleExcludesActAsOR(t *testing.T) {
@@ -115,10 +144,21 @@ func TestMatches_MultipleExcludesActAsOR(t *testing.T) {
 	service := &unstructured.Unstructured{Object: map[string]any{"kind": "Service", "metadata": map[string]any{"name": "svc"}}}
 	configMap := &unstructured.Unstructured{Object: map[string]any{"kind": "ConfigMap", "metadata": map[string]any{"name": "config"}}}
 
-	g.Expect(f.Matches(deployment)).To(BeTrue())
-	g.Expect(f.Matches(secret)).To(BeFalse())
-	g.Expect(f.Matches(service)).To(BeTrue())
-	g.Expect(f.Matches(configMap)).To(BeFalse())
+	matches, err := f.Matches(deployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
+
+	matches, err = f.Matches(secret)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
+
+	matches, err = f.Matches(service)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
+
+	matches, err = f.Matches(configMap)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
 }
 
 func TestMatches_ExcludePriorityOverInclude(t *testing.T) {
@@ -131,9 +171,17 @@ func TestMatches_ExcludePriorityOverInclude(t *testing.T) {
 	excludedDeployment := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "excluded-app"}}}
 	service := &unstructured.Unstructured{Object: map[string]any{"kind": "Service", "metadata": map[string]any{"name": "svc"}}}
 
-	g.Expect(f.Matches(includedDeployment)).To(BeTrue())
-	g.Expect(f.Matches(excludedDeployment)).To(BeFalse())
-	g.Expect(f.Matches(service)).To(BeFalse())
+	matches, err := f.Matches(includedDeployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
+
+	matches, err = f.Matches(excludedDeployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
+
+	matches, err = f.Matches(service)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
 }
 
 func TestMatches_NestedFieldAccess(t *testing.T) {
@@ -146,9 +194,17 @@ func TestMatches_NestedFieldAccess(t *testing.T) {
 	kubeSystemDeployment := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment", "metadata": map[string]any{"name": "app2", "namespace": "kube-system"}}}
 	defaultService := &unstructured.Unstructured{Object: map[string]any{"kind": "Service", "metadata": map[string]any{"name": "svc", "namespace": "default"}}}
 
-	g.Expect(f.Matches(defaultDeployment)).To(BeTrue())
-	g.Expect(f.Matches(kubeSystemDeployment)).To(BeFalse())
-	g.Expect(f.Matches(defaultService)).To(BeTrue())
+	matches, err := f.Matches(defaultDeployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
+
+	matches, err = f.Matches(kubeSystemDeployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
+
+	matches, err = f.Matches(defaultService)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
 }
 
 func TestMatches_ComplexJQExpression(t *testing.T) {
@@ -173,9 +229,17 @@ func TestMatches_ComplexJQExpression(t *testing.T) {
 		"kind": "Service",
 	}}
 
-	g.Expect(f.Matches(highReplicaDeployment)).To(BeTrue())
-	g.Expect(f.Matches(lowReplicaDeployment)).To(BeFalse())
-	g.Expect(f.Matches(service)).To(BeFalse())
+	matches, err := f.Matches(highReplicaDeployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
+
+	matches, err = f.Matches(lowReplicaDeployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
+
+	matches, err = f.Matches(service)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
 }
 
 func TestMatches_OnlyBooleanTrueMatches(t *testing.T) {
@@ -186,15 +250,19 @@ func TestMatches_OnlyBooleanTrueMatches(t *testing.T) {
 	// This should NOT match because .kind returns "Deployment" (a string), not true
 	f1, err := filter.New([]string{".kind"}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(f1.Matches(deployment)).To(BeFalse())
+	matches, err := f1.Matches(deployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
 
 	// This SHOULD match because == returns boolean true
 	f2, err := filter.New([]string{".kind == \"Deployment\""}, []string{})
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(f2.Matches(deployment)).To(BeTrue())
+	matches, err = f2.Matches(deployment)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeTrue())
 }
 
-func TestMatches_ErrorsDoNotMatch(t *testing.T) {
+func TestMatches_ErrorsAreReturned(t *testing.T) {
 	g := NewWithT(t)
 
 	f, err := filter.New([]string{".metadata.name == \"foo\""}, []string{})
@@ -203,8 +271,13 @@ func TestMatches_ErrorsDoNotMatch(t *testing.T) {
 	deploymentWithoutMetadata := &unstructured.Unstructured{Object: map[string]any{"kind": "Deployment"}}
 	serviceWithoutMetadata := &unstructured.Unstructured{Object: map[string]any{"kind": "Service"}}
 
-	// This expression will error on objects without .metadata.name
-	// but should not crash, just not match those objects
-	g.Expect(f.Matches(deploymentWithoutMetadata)).To(BeFalse())
-	g.Expect(f.Matches(serviceWithoutMetadata)).To(BeFalse())
+	// jq queries that access missing fields return null, not errors
+	// These should succeed (return false) without errors
+	matches, err := f.Matches(deploymentWithoutMetadata)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
+
+	matches, err = f.Matches(serviceWithoutMetadata)
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(matches).To(BeFalse())
 }

@@ -3,16 +3,19 @@ package kube
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
 )
@@ -210,11 +213,16 @@ func IsNamespaced(gvk schema.GroupVersionKind) bool {
 	return !gvks.ClusterScoped[gvk]
 }
 
-// SetNamespace sets the namespace on a runtime.Object if it implements metav1.Object.
-func SetNamespace(obj runtime.Object, namespace string) {
-	if accessor, ok := obj.(metav1.Object); ok {
-		accessor.SetNamespace(namespace)
+// SetNamespace sets the namespace on a runtime.Object.
+func SetNamespace(obj runtime.Object, namespace string) error {
+	accessor, err := meta.Accessor(obj)
+	if err != nil {
+		return fmt.Errorf("failed to get object accessor: %w", err)
 	}
+
+	accessor.SetNamespace(namespace)
+
+	return nil
 }
 
 // ValidateNamespace validates a Kubernetes namespace name according to DNS-1123 label standards.
@@ -223,26 +231,8 @@ func ValidateNamespace(ns string) error {
 		return errors.New("namespace cannot be empty")
 	}
 
-	if len(ns) > 63 {
-		return errors.New("namespace name too long (max 63 characters)")
-	}
-
-	for i, c := range ns {
-		isLowerAlpha := c >= 'a' && c <= 'z'
-		isDigit := c >= '0' && c <= '9'
-		isDash := c == '-'
-
-		if !isLowerAlpha && !isDigit && !isDash {
-			return errors.New("invalid namespace name: must consist of lowercase alphanumeric characters or '-'")
-		}
-
-		if i == 0 && (isDash || isDigit) {
-			return errors.New("invalid namespace name: must start with a lowercase letter")
-		}
-
-		if i == len(ns)-1 && isDash {
-			return errors.New("invalid namespace name: must end with an alphanumeric character")
-		}
+	if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
+		return fmt.Errorf("invalid namespace name: %s", errs[0])
 	}
 
 	return nil
@@ -267,16 +257,11 @@ func ConvertToUnstructured(objects []runtime.Object) ([]*unstructured.Unstructur
 
 // SortForApply sorts unstructured objects by their resource type priority for proper kubectl apply order.
 // Ordering: Namespace → CRD → ServiceAccount → Role → RoleBinding → ClusterRole →
-// ClusterRoleBinding → Deployment → Service → Certificate → Webhook → Other.
+// ClusterRoleBinding → Deployment → Service → Issuer → Certificate → Webhook → Other.
 func SortForApply(objects []*unstructured.Unstructured) {
-	n := len(objects)
-	for i := range n - 1 {
-		for j := i + 1; j < n; j++ {
-			if getUnstructuredPriority(objects[i]) > getUnstructuredPriority(objects[j]) {
-				objects[i], objects[j] = objects[j], objects[i]
-			}
-		}
-	}
+	sort.Slice(objects, func(i int, j int) bool {
+		return getUnstructuredPriority(objects[i]) < getUnstructuredPriority(objects[j])
+	})
 }
 
 // Resource priority constants for kubectl apply ordering.
@@ -290,6 +275,7 @@ const (
 	priorityClusterRoleBinding
 	priorityDeployment
 	priorityService
+	priorityIssuer // cert-manager Issuers must come before Certificates that reference them
 	priorityCertificate
 	priorityWebhook
 	priorityOther
@@ -318,6 +304,8 @@ func getUnstructuredPriority(obj *unstructured.Unstructured) int {
 		return priorityDeployment
 	case "Service":
 		return priorityService
+	case "Issuer", "ClusterIssuer":
+		return priorityIssuer
 	case "Certificate":
 		return priorityCertificate
 	case "ValidatingWebhookConfiguration", "MutatingWebhookConfiguration":

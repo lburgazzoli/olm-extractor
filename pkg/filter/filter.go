@@ -45,37 +45,47 @@ func New(includeExprs []string, excludeExprs []string) (*Filter, error) {
 // Matches returns true if the object should be included based on filter rules.
 // Exclude filters have priority: if a resource matches any exclude filter, it returns false.
 // Include filters act as OR: if include filters exist, the resource must match at least one.
-func (f *Filter) Matches(obj *unstructured.Unstructured) bool {
+// Returns an error if any jq query execution fails.
+func (f *Filter) Matches(obj *unstructured.Unstructured) (bool, error) {
 	return f.shouldInclude(obj.Object)
 }
 
 // shouldInclude determines if an object should be included based on filter rules.
-func (f *Filter) shouldInclude(objMap map[string]any) bool {
+func (f *Filter) shouldInclude(objMap map[string]any) (bool, error) {
 	// Check exclude filters first (they have priority)
 	for _, query := range f.excludeQueries {
-		if matchesQuery(query, objMap) {
-			return false
+		matches, err := matchesQuery(query, objMap)
+		if err != nil {
+			return false, fmt.Errorf("exclude filter error: %w", err)
+		}
+		if matches {
+			return false, nil
 		}
 	}
 
 	// If no include filters, include by default (already passed exclude check)
 	if len(f.includeQueries) == 0 {
-		return true
+		return true, nil
 	}
 
 	// Check if matches any include filter (OR logic)
 	for _, query := range f.includeQueries {
-		if matchesQuery(query, objMap) {
-			return true
+		matches, err := matchesQuery(query, objMap)
+		if err != nil {
+			return false, fmt.Errorf("include filter error: %w", err)
+		}
+		if matches {
+			return true, nil
 		}
 	}
 
-	return false
+	return false, nil
 }
 
 // matchesQuery evaluates a jq query against an object and returns true if it matches.
 // A match is defined as the query returning the boolean value true.
-func matchesQuery(query *gojq.Query, obj map[string]any) bool {
+// Returns an error if the jq query execution fails.
+func matchesQuery(query *gojq.Query, obj map[string]any) (bool, error) {
 	iter := query.Run(obj)
 
 	for {
@@ -84,16 +94,16 @@ func matchesQuery(query *gojq.Query, obj map[string]any) bool {
 			break
 		}
 
-		// If there's an error, treat as no match
-		if _, isErr := v.(error); isErr {
-			return false
+		// Check for query execution errors
+		if err, isErr := v.(error); isErr {
+			return false, fmt.Errorf("jq query execution failed: %w", err)
 		}
 
 		// Only match if the result is the boolean value true
 		if b, ok := v.(bool); ok && b {
-			return true
+			return true, nil
 		}
 	}
 
-	return false
+	return false, nil
 }
