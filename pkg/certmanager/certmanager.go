@@ -242,7 +242,10 @@ func processWebhooks(
 		}
 
 		// Extract the actual webhook secret name from the deployment
-		secretName := extractWebhookSecretName(objects, deploymentName)
+		secretName, err := extractWebhookSecretName(objects, deploymentName)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to extract webhook secret name from deployment %s: %w", deploymentName, err)
+		}
 		if secretName == "" {
 			// Fallback to generated name if not found in deployment
 			secretName = info.ServiceName + tlsSecretSuffix
@@ -299,18 +302,19 @@ func processWebhooks(
 // used. This approach is generic across all OLM bundles, regardless of their naming conventions.
 //
 // Returns empty string if the deployment cannot be found or has no secret volumes.
-func extractWebhookSecretName(objects []*unstructured.Unstructured, deploymentName string) string {
+// Returns an error if the deployment cannot be converted to typed object.
+func extractWebhookSecretName(objects []*unstructured.Unstructured, deploymentName string) (string, error) {
 	deploymentUnstructured, found := slices.Find(objects, func(obj *unstructured.Unstructured) bool {
 		return kube.Is(obj, gvks.Deployment, deploymentName)
 	})
 	if !found {
-		return ""
+		return "", nil
 	}
 
 	// Convert to typed Deployment for type-safe field access
 	var deployment appsv1.Deployment
 	if err := kube.FromUnstructured(deploymentUnstructured, &deployment); err != nil {
-		return ""
+		return "", fmt.Errorf("failed to convert deployment %s to typed object: %w", deploymentName, err)
 	}
 
 	secretVolumes := make([]secretVolumeInfo, 0, len(deployment.Spec.Template.Spec.Volumes))
@@ -328,7 +332,7 @@ func extractWebhookSecretName(objects []*unstructured.Unstructured, deploymentNa
 	}
 
 	// Return the best matching secret
-	return selectWebhookSecret(secretVolumes)
+	return selectWebhookSecret(secretVolumes), nil
 }
 
 // secretVolumeInfo holds information about a secret volume.
