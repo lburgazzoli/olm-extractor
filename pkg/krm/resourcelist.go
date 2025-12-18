@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/api/v1alpha1"
+	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 )
 
 const (
@@ -193,72 +194,9 @@ func ToResourceList(objects []*unstructured.Unstructured) *ResourceList {
 	rl := NewResourceList()
 	for _, obj := range objects {
 		// Clean the object before adding to ResourceList
-		cleanedObj := &unstructured.Unstructured{Object: cleanUnstructured(obj.Object)}
+		cleanedObj := kube.CleanUnstructured(obj)
 		rl.Items = append(rl.Items, cleanedObj)
 	}
 
 	return rl
-}
-
-// cleanUnstructured recursively removes nil values and empty maps/slices from the object.
-func cleanUnstructured(obj map[string]any) map[string]any {
-	result := make(map[string]any)
-
-	for key, value := range obj {
-		cleaned := cleanValue(value)
-		if cleaned != nil {
-			result[key] = cleaned
-		}
-	}
-
-	return result
-}
-
-func cleanValue(value any) any {
-	if value == nil {
-		return nil
-	}
-
-	switch v := value.(type) {
-	case map[string]any:
-		cleaned := cleanUnstructured(v)
-		if len(cleaned) == 0 {
-			return nil
-		}
-
-		return cleaned
-	case []any:
-		if len(v) == 0 {
-			return nil
-		}
-
-		cleaned := make([]any, 0, len(v))
-
-		for _, item := range v {
-			// Preserve empty strings in arrays (e.g. apiGroups: [""] = core API in Kubernetes)
-			if str, ok := item.(string); ok && str == "" {
-				cleaned = append(cleaned, "")
-
-				continue
-			}
-
-			if c := cleanValue(item); c != nil {
-				cleaned = append(cleaned, c)
-			}
-		}
-
-		if len(cleaned) == 0 {
-			return nil
-		}
-
-		return cleaned
-	case string:
-		if v == "" {
-			return nil
-		}
-
-		return v
-	default:
-		return value
-	}
 }
