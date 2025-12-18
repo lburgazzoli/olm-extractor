@@ -127,14 +127,16 @@ func Configure(objects []*unstructured.Unstructured, namespace string, cfg Confi
 
 	// Add remaining non-webhook objects (excluding processed services)
 	remainingObjects := kube.Find(objects, func(obj *unstructured.Unstructured) bool {
-		if kube.IsWebhookConfiguration(obj) {
-			return false
-		}
-		if kube.IsKind(obj, gvks.Service) && processedServiceNames.Has(obj.GetName()) {
-			return false
-		}
+		gvk := obj.GroupVersionKind()
 
-		return true
+		switch {
+		case kube.IsWebhookConfiguration(obj):
+			return false
+		case gvk == gvks.Service && processedServiceNames.Has(obj.GetName()):
+			return false
+		default:
+			return true
+		}
 	})
 
 	return append(webhookObjects, remainingObjects...), nil
