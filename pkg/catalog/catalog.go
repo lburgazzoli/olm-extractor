@@ -168,6 +168,22 @@ func findPackage(cfg *declcfg.DeclarativeConfig, name string) (*declcfg.Package,
 
 // findChannel finds a channel by name for a package in the catalog.
 func findChannel(cfg *declcfg.DeclarativeConfig, packageName string, channelName string) (*declcfg.Channel, error) {
+	// First, verify the package exists
+	packageExists := slices.Any(cfg.Packages, func(p declcfg.Package) bool {
+		return p.Name == packageName
+	})
+	if !packageExists {
+		available := slices.Map(cfg.Packages, func(p declcfg.Package) string {
+			return p.Name
+		})
+		if len(available) == 0 {
+			return nil, fmt.Errorf("package %q not found in catalog (catalog contains no packages)", packageName)
+		}
+
+		return nil, fmt.Errorf("package %q not found in catalog (available packages: %v)", packageName, available)
+	}
+
+	// Then, search for the channel
 	ch, found := slices.Find(cfg.Channels, func(c declcfg.Channel) bool {
 		return c.Package == packageName && c.Name == channelName
 	})
