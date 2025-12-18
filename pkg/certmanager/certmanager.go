@@ -33,7 +33,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
@@ -310,7 +309,7 @@ func extractWebhookSecretName(objects []*unstructured.Unstructured, deploymentNa
 
 	// Convert to typed Deployment for type-safe field access
 	var deployment appsv1.Deployment
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(deploymentUnstructured.Object, &deployment); err != nil {
+	if err := kube.FromUnstructured(deploymentUnstructured, &deployment); err != nil {
 		return ""
 	}
 
