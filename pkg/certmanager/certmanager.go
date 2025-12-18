@@ -53,6 +53,9 @@ const (
 	// selfsignedIssuerSuffix is appended to operator names for auto-generated issuers.
 	selfsignedIssuerSuffix = "-selfsigned"
 
+	// defaultOperatorName is the fallback name when no deployment or service account is found.
+	defaultOperatorName = "operator"
+
 	// expectedObjectsPerWebhook is the estimated number of objects generated per webhook
 	// (webhook + certificate + service).
 	expectedObjectsPerWebhook = 3
@@ -127,12 +130,10 @@ func Configure(objects []*unstructured.Unstructured, namespace string, cfg Confi
 
 	// Add remaining non-webhook objects (excluding processed services)
 	remainingObjects := kube.Find(objects, func(obj *unstructured.Unstructured) bool {
-		gvk := obj.GroupVersionKind()
-
 		switch {
 		case kube.IsWebhookConfiguration(obj):
 			return false
-		case gvk == gvks.Service && processedServiceNames.Has(obj.GetName()):
+		case kube.IsKind(obj, gvks.Service) && processedServiceNames.Has(obj.GetName()):
 			return false
 		default:
 			return true
@@ -146,7 +147,7 @@ func Configure(objects []*unstructured.Unstructured, namespace string, cfg Confi
 // Uses the same logic as resource normalization:
 //  1. First deployment name found
 //  2. First service account name found
-//  3. Fallback to "operator"
+//  3. Fallback to defaultOperatorName
 func extractOperatorName(objects []*unstructured.Unstructured) string {
 	// Try deployment first
 	deployments := kube.Find(objects, func(obj *unstructured.Unstructured) bool {
@@ -165,7 +166,7 @@ func extractOperatorName(objects []*unstructured.Unstructured) string {
 	}
 
 	// Fallback
-	return "operator"
+	return defaultOperatorName
 }
 
 // createSelfSignedIssuer creates a namespace-scoped self-signed Issuer.
