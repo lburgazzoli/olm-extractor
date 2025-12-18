@@ -30,8 +30,10 @@ import (
 	certmanagerv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 
+	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
@@ -299,45 +301,30 @@ func processWebhooks(
 //
 // Returns empty string if the deployment cannot be found or has no secret volumes.
 func extractWebhookSecretName(objects []*unstructured.Unstructured, deploymentName string) string {
-	deployment, found := slices.Find(objects, func(obj *unstructured.Unstructured) bool {
+	deploymentUnstructured, found := slices.Find(objects, func(obj *unstructured.Unstructured) bool {
 		return kube.Is(obj, gvks.Deployment, deploymentName)
 	})
 	if !found {
 		return ""
 	}
 
-	// Extract volumes from deployment spec
-	volumes, found, err := unstructured.NestedSlice(deployment.Object, "spec", "template", "spec", "volumes")
-	if err != nil || !found {
+	// Convert to typed Deployment for type-safe field access
+	var deployment appsv1.Deployment
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(deploymentUnstructured.Object, &deployment); err != nil {
 		return ""
 	}
 
-	secretVolumes := make([]secretVolumeInfo, 0, len(volumes))
+	secretVolumes := make([]secretVolumeInfo, 0, len(deployment.Spec.Template.Spec.Volumes))
 
 	// Collect all secret volumes
-	for _, vol := range volumes {
-		volumeMap, ok := vol.(map[string]any)
-		if !ok {
+	for _, vol := range deployment.Spec.Template.Spec.Volumes {
+		if vol.Secret == nil {
 			continue
 		}
-
-		// Check if this volume has a secret
-		secretMap, found, err := unstructured.NestedMap(volumeMap, "secret")
-		if err != nil || !found {
-			continue
-		}
-
-		// Get the secret name and volume name
-		secretName, found, err := unstructured.NestedString(secretMap, "secretName")
-		if err != nil || !found || secretName == "" {
-			continue
-		}
-
-		volumeName, _, _ := unstructured.NestedString(volumeMap, "name")
 
 		secretVolumes = append(secretVolumes, secretVolumeInfo{
-			secretName: secretName,
-			volumeName: volumeName,
+			secretName: vol.Secret.SecretName,
+			volumeName: vol.Name,
 		})
 	}
 
