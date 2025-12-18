@@ -7,10 +7,11 @@ import (
 
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
@@ -21,10 +22,10 @@ import (
 // where {random} is a long alphanumeric string (typically 30+ chars).
 var olmNamePattern = regexp.MustCompile(`^(.+?)-(op-)?([a-zA-Z0-9]{30,})$`)
 
-// resourceKey uniquely identifies a resource by name and kind.
+// resourceKey uniquely identifies a resource by name and GVK.
 type resourceKey struct {
 	name string
-	kind string
+	gvk  schema.GroupVersionKind
 }
 
 // nameMapping tracks the mapping from old OLM-generated names to new normalized names.
@@ -40,36 +41,43 @@ type nameMapping struct {
 // normalizeResourceNames normalizes OLM-generated resource names to be simple and consistent.
 // It strips random suffixes and generates clean, deterministic names based on the deployment name.
 func normalizeResourceNames(objects []runtime.Object) ([]runtime.Object, error) {
-	mapping := buildNameMapping(objects)
+	mapping, err := buildNameMapping(objects)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build name mapping: %w", err)
+	}
 
 	return applyNameMapping(objects, mapping)
 }
 
 // buildNameMapping analyzes resources and builds a mapping from old to new names.
-func buildNameMapping(objects []runtime.Object) *nameMapping {
+func buildNameMapping(objects []runtime.Object) (*nameMapping, error) {
 	mapping := &nameMapping{
 		oldToNew: make(map[resourceKey]string),
 	}
 
 	if len(objects) == 0 {
-		return mapping
+		return mapping, nil
 	}
 
 	// Find deployment and service account names
-	extractBaseNames(objects, mapping)
+	if err := extractBaseNames(objects, mapping); err != nil {
+		return nil, err
+	}
 
 	// Build mappings for resources with OLM-generated names
-	buildResourceMappings(objects, mapping)
+	if err := buildResourceMappings(objects, mapping); err != nil {
+		return nil, err
+	}
 
-	return mapping
+	return mapping, nil
 }
 
 // extractBaseNames finds the deployment and service account names from the objects.
-func extractBaseNames(objects []runtime.Object, mapping *nameMapping) {
+func extractBaseNames(objects []runtime.Object, mapping *nameMapping) error {
 	for _, obj := range objects {
 		metaObj, err := meta.Accessor(obj)
 		if err != nil {
-			continue
+			return fmt.Errorf("failed to access object metadata: %w", err)
 		}
 
 		gvk := obj.GetObjectKind().GroupVersionKind()
@@ -84,6 +92,8 @@ func extractBaseNames(objects []runtime.Object, mapping *nameMapping) {
 			}
 		}
 	}
+
+	return nil
 }
 
 // getBaseName returns the base name to use for normalization.
@@ -99,19 +109,32 @@ func getBaseName(mapping *nameMapping) string {
 	return baseName
 }
 
+// RBAC resource types that should have their OLM-generated names normalized.
+//
+//nolint:gochecknoglobals
+var normalizedResourceTypes = sets.New(
+	gvks.Role,
+	gvks.RoleBinding,
+	gvks.ClusterRole,
+	gvks.ClusterRoleBinding,
+)
+
 // buildResourceMappings creates mappings for all RBAC resources with OLM-generated names.
-func buildResourceMappings(objects []runtime.Object, mapping *nameMapping) {
+func buildResourceMappings(objects []runtime.Object, mapping *nameMapping) error {
 	baseName := getBaseName(mapping)
 
-	roleCount := 0
-	roleBindingCount := 0
-	clusterRoleCount := 0
-	clusterRoleBindingCount := 0
+	// Track counts per resource type
+	counts := make(map[schema.GroupVersionKind]int)
 
 	for _, obj := range objects {
+		gvk := obj.GetObjectKind().GroupVersionKind()
+		if !normalizedResourceTypes.Has(gvk) {
+			continue
+		}
+
 		metaObj, err := meta.Accessor(obj)
 		if err != nil {
-			continue
+			return fmt.Errorf("failed to access object metadata: %w", err)
 		}
 
 		name := metaObj.GetName()
@@ -119,30 +142,14 @@ func buildResourceMappings(objects []runtime.Object, mapping *nameMapping) {
 			continue
 		}
 
-		gvk := obj.GetObjectKind().GroupVersionKind()
-
-		switch gvk {
-		case gvks.Role:
-			newName := generateResourceName(baseName, "role", roleCount)
-			mapping.oldToNew[resourceKey{name: name, kind: "Role"}] = newName
-			roleCount++
-
-		case gvks.RoleBinding:
-			newName := generateResourceName(baseName, "rolebinding", roleBindingCount)
-			mapping.oldToNew[resourceKey{name: name, kind: "RoleBinding"}] = newName
-			roleBindingCount++
-
-		case gvks.ClusterRole:
-			newName := generateResourceName(baseName, "clusterrole", clusterRoleCount)
-			mapping.oldToNew[resourceKey{name: name, kind: "ClusterRole"}] = newName
-			clusterRoleCount++
-
-		case gvks.ClusterRoleBinding:
-			newName := generateResourceName(baseName, "clusterrolebinding", clusterRoleBindingCount)
-			mapping.oldToNew[resourceKey{name: name, kind: "ClusterRoleBinding"}] = newName
-			clusterRoleBindingCount++
-		}
+		// Process RBAC resources - suffix is derived from Kind (lowercase)
+		suffix := strings.ToLower(gvk.Kind)
+		newName := generateResourceName(baseName, suffix, counts[gvk])
+		mapping.oldToNew[resourceKey{name: name, gvk: gvk}] = newName
+		counts[gvk]++
 	}
+
+	return nil
 }
 
 // generateResourceName creates a normalized name for a resource.
@@ -179,20 +186,36 @@ func applyNameMapping(objects []runtime.Object, mapping *nameMapping) ([]runtime
 	return normalized, nil
 }
 
+// updateSimpleResourceName updates a resource's name using the metav1.Object interface.
+// Works for any resource that only needs name normalization (Role, ClusterRole, ServiceAccount).
+func updateSimpleResourceName(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
+	metaObj, err := meta.Accessor(obj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access object metadata: %w", err)
+	}
+
+	gvk := obj.GetObjectKind().GroupVersionKind()
+	key := resourceKey{name: metaObj.GetName(), gvk: gvk}
+	if newName, ok := mapping.oldToNew[key]; ok {
+		metaObj.SetName(newName)
+	}
+
+	return obj, nil
+}
+
 // normalizeObject normalizes a single object's name and cross-references.
 func normalizeObject(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
 	gvk := obj.GetObjectKind().GroupVersionKind()
 	switch gvk {
-	case gvks.Role:
-		return normalizeRole(obj, mapping)
+	// Simple resources - just update name directly with helper
+	case gvks.Role, gvks.ClusterRole, gvks.ServiceAccount:
+		return updateSimpleResourceName(obj, mapping)
+
+	// Complex resources - keep dedicated functions
 	case gvks.RoleBinding:
 		return normalizeRoleBinding(obj, mapping)
-	case gvks.ClusterRole:
-		return normalizeClusterRole(obj, mapping)
 	case gvks.ClusterRoleBinding:
 		return normalizeClusterRoleBinding(obj, mapping)
-	case gvks.ServiceAccount:
-		return normalizeServiceAccount(obj, mapping)
 	case gvks.Deployment:
 		return normalizeDeployment(obj, mapping)
 	case gvks.ValidatingWebhookConfiguration:
@@ -204,36 +227,6 @@ func normalizeObject(obj runtime.Object, mapping *nameMapping) (runtime.Object, 
 	return obj, nil
 }
 
-// normalizeServiceAccount normalizes a ServiceAccount's name.
-func normalizeServiceAccount(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
-	sa, err := kube.Convert[*corev1.ServiceAccount](obj)
-	if err != nil {
-		return nil, err
-	}
-
-	key := resourceKey{name: sa.Name, kind: "ServiceAccount"}
-	if newName, ok := mapping.oldToNew[key]; ok {
-		sa.Name = newName
-	}
-
-	return sa, nil
-}
-
-// normalizeRole normalizes a Role's name.
-func normalizeRole(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
-	role, err := kube.Convert[*rbacv1.Role](obj)
-	if err != nil {
-		return nil, err
-	}
-
-	key := resourceKey{name: role.Name, kind: "Role"}
-	if newName, ok := mapping.oldToNew[key]; ok {
-		role.Name = newName
-	}
-
-	return role, nil
-}
-
 // normalizeRoleBinding normalizes a RoleBinding's name and roleRef.
 func normalizeRoleBinding(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
 	rb, err := kube.Convert[*rbacv1.RoleBinding](obj)
@@ -242,33 +235,18 @@ func normalizeRoleBinding(obj runtime.Object, mapping *nameMapping) (runtime.Obj
 	}
 
 	// Update the RoleBinding's own name
-	key := resourceKey{name: rb.Name, kind: "RoleBinding"}
+	key := resourceKey{name: rb.Name, gvk: gvks.RoleBinding}
 	if newName, ok := mapping.oldToNew[key]; ok {
 		rb.Name = newName
 	}
 
 	// Update the roleRef to point to the normalized Role name
-	roleKey := resourceKey{name: rb.RoleRef.Name, kind: "Role"}
+	roleKey := resourceKey{name: rb.RoleRef.Name, gvk: gvks.Role}
 	if newRoleName, ok := mapping.oldToNew[roleKey]; ok {
 		rb.RoleRef.Name = newRoleName
 	}
 
 	return rb, nil
-}
-
-// normalizeClusterRole normalizes a ClusterRole's name.
-func normalizeClusterRole(obj runtime.Object, mapping *nameMapping) (runtime.Object, error) {
-	cr, err := kube.Convert[*rbacv1.ClusterRole](obj)
-	if err != nil {
-		return nil, err
-	}
-
-	key := resourceKey{name: cr.Name, kind: "ClusterRole"}
-	if newName, ok := mapping.oldToNew[key]; ok {
-		cr.Name = newName
-	}
-
-	return cr, nil
 }
 
 // normalizeClusterRoleBinding normalizes a ClusterRoleBinding's name and roleRef.
@@ -279,13 +257,13 @@ func normalizeClusterRoleBinding(obj runtime.Object, mapping *nameMapping) (runt
 	}
 
 	// Update the ClusterRoleBinding's own name
-	key := resourceKey{name: crb.Name, kind: "ClusterRoleBinding"}
+	key := resourceKey{name: crb.Name, gvk: gvks.ClusterRoleBinding}
 	if newName, ok := mapping.oldToNew[key]; ok {
 		crb.Name = newName
 	}
 
 	// Update the roleRef to point to the normalized ClusterRole name
-	roleKey := resourceKey{name: crb.RoleRef.Name, kind: "ClusterRole"}
+	roleKey := resourceKey{name: crb.RoleRef.Name, gvk: gvks.ClusterRole}
 	if newClusterRoleName, ok := mapping.oldToNew[roleKey]; ok {
 		crb.RoleRef.Name = newClusterRoleName
 	}
@@ -303,7 +281,7 @@ func normalizeDeployment(obj runtime.Object, mapping *nameMapping) (runtime.Obje
 	// Update serviceAccountName if it was renamed
 	saName := dep.Spec.Template.Spec.ServiceAccountName
 	if saName != "" {
-		saKey := resourceKey{name: saName, kind: "ServiceAccount"}
+		saKey := resourceKey{name: saName, gvk: gvks.ServiceAccount}
 		if newSAName, ok := mapping.oldToNew[saKey]; ok {
 			dep.Spec.Template.Spec.ServiceAccountName = newSAName
 		}

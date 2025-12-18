@@ -33,8 +33,13 @@ func ExtractAll(reader io.Reader, targetDir string, dirPerms os.FileMode) error 
 // ExtractEntry extracts a single tar entry to the target directory.
 // It validates that the extraction path does not escape the target directory (path traversal protection).
 func ExtractEntry(header *tar.Header, tr *tar.Reader, targetDir string, dirPerms os.FileMode) error {
+	// Check for absolute paths in tar entry name (path traversal attempt)
+	if filepath.IsAbs(header.Name) {
+		return fmt.Errorf("illegal file path in tar: %s", header.Name)
+	}
+
 	// Resolve target path
-	//nolint:gosec // Path traversal is checked below
+	//nolint:gosec // Path traversal is checked above and below
 	target := filepath.Join(targetDir, header.Name)
 
 	// Ensure we don't extract outside the target directory (path traversal protection)

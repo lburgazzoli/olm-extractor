@@ -45,7 +45,7 @@ func TestExtractDirectory(t *testing.T) {
 		tmpDir := t.TempDir()
 		target := filepath.Join(tmpDir, "existing")
 
-		err := os.Mkdir(target, 0755)
+		err := os.Mkdir(target, 0750)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		err = tarutil.ExtractDirectory(target, 0750)
@@ -60,17 +60,29 @@ func TestExtractFile(t *testing.T) {
 		target := filepath.Join(tmpDir, "testfile.txt")
 		content := []byte("test content")
 
+		// Create a proper tar archive
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
 		header := &tar.Header{
 			Name: "testfile.txt",
 			Mode: 0644,
 			Size: int64(len(content)),
 		}
-		tr := tar.NewReader(bytes.NewReader(content))
+		err := tw.WriteHeader(header)
+		g.Expect(err).ToNot(HaveOccurred())
+		_, err = tw.Write(content)
+		g.Expect(err).ToNot(HaveOccurred())
+		err = tw.Close()
+		g.Expect(err).ToNot(HaveOccurred())
 
-		err := tarutil.ExtractFile(target, header, tr, 0750)
+		tr := tar.NewReader(&buf)
+		_, err = tr.Next()
+		g.Expect(err).ToNot(HaveOccurred())
+
+		err = tarutil.ExtractFile(target, header, tr, 0750)
 
 		g.Expect(err).ToNot(HaveOccurred())
-		data, err := os.ReadFile(target)
+		data, err := os.ReadFile(filepath.Clean(target))
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(data).To(Equal(content))
 
@@ -85,17 +97,29 @@ func TestExtractFile(t *testing.T) {
 		target := filepath.Join(tmpDir, "a", "b", "testfile.txt")
 		content := []byte("nested file")
 
+		// Create a proper tar archive
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
 		header := &tar.Header{
 			Name: "a/b/testfile.txt",
 			Mode: 0644,
 			Size: int64(len(content)),
 		}
-		tr := tar.NewReader(bytes.NewReader(content))
+		err := tw.WriteHeader(header)
+		g.Expect(err).ToNot(HaveOccurred())
+		_, err = tw.Write(content)
+		g.Expect(err).ToNot(HaveOccurred())
+		err = tw.Close()
+		g.Expect(err).ToNot(HaveOccurred())
 
-		err := tarutil.ExtractFile(target, header, tr, 0750)
+		tr := tar.NewReader(&buf)
+		_, err = tr.Next()
+		g.Expect(err).ToNot(HaveOccurred())
+
+		err = tarutil.ExtractFile(target, header, tr, 0750)
 
 		g.Expect(err).ToNot(HaveOccurred())
-		data, err := os.ReadFile(target)
+		data, err := os.ReadFile(filepath.Clean(target))
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(data).To(Equal(content))
 	})
@@ -105,21 +129,34 @@ func TestExtractFile(t *testing.T) {
 		tmpDir := t.TempDir()
 		target := filepath.Join(tmpDir, "testfile.txt")
 
-		err := os.WriteFile(target, []byte("old content"), 0644)
+		err := os.WriteFile(target, []byte("old content"), 0600)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		newContent := []byte("new content")
+
+		// Create a proper tar archive
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
 		header := &tar.Header{
 			Name: "testfile.txt",
 			Mode: 0644,
 			Size: int64(len(newContent)),
 		}
-		tr := tar.NewReader(bytes.NewReader(newContent))
+		err = tw.WriteHeader(header)
+		g.Expect(err).ToNot(HaveOccurred())
+		_, err = tw.Write(newContent)
+		g.Expect(err).ToNot(HaveOccurred())
+		err = tw.Close()
+		g.Expect(err).ToNot(HaveOccurred())
+
+		tr := tar.NewReader(&buf)
+		_, err = tr.Next()
+		g.Expect(err).ToNot(HaveOccurred())
 
 		err = tarutil.ExtractFile(target, header, tr, 0750)
 
 		g.Expect(err).ToNot(HaveOccurred())
-		data, err := os.ReadFile(target)
+		data, err := os.ReadFile(filepath.Clean(target))
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(data).To(Equal(newContent))
 	})
@@ -153,7 +190,7 @@ func TestExtractSymlink(t *testing.T) {
 		targetFile := filepath.Join(tmpDir, "target.txt")
 		linkPath := filepath.Join(tmpDir, "link.txt")
 
-		err := os.WriteFile(targetFile, []byte("target content"), 0644)
+		err := os.WriteFile(targetFile, []byte("target content"), 0600)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		header := &tar.Header{
@@ -166,7 +203,7 @@ func TestExtractSymlink(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		info, err := os.Lstat(linkPath)
 		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(info.Mode()&os.ModeSymlink).To(Equal(os.ModeSymlink))
+		g.Expect(info.Mode() & os.ModeSymlink).To(Equal(os.ModeSymlink))
 
 		linkTarget, err := os.Readlink(linkPath)
 		g.Expect(err).ToNot(HaveOccurred())
@@ -188,7 +225,7 @@ func TestExtractSymlink(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		info, err := os.Lstat(linkPath)
 		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(info.Mode()&os.ModeSymlink).To(Equal(os.ModeSymlink))
+		g.Expect(info.Mode() & os.ModeSymlink).To(Equal(os.ModeSymlink))
 	})
 
 	t.Run("replaces existing file with symlink", func(t *testing.T) {
@@ -196,7 +233,7 @@ func TestExtractSymlink(t *testing.T) {
 		tmpDir := t.TempDir()
 		linkPath := filepath.Join(tmpDir, "link.txt")
 
-		err := os.WriteFile(linkPath, []byte("existing file"), 0644)
+		err := os.WriteFile(linkPath, []byte("existing file"), 0600)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		header := &tar.Header{
@@ -209,7 +246,7 @@ func TestExtractSymlink(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		info, err := os.Lstat(linkPath)
 		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(info.Mode()&os.ModeSymlink).To(Equal(os.ModeSymlink))
+		g.Expect(info.Mode() & os.ModeSymlink).To(Equal(os.ModeSymlink))
 	})
 }
 
@@ -237,18 +274,30 @@ func TestExtractEntry(t *testing.T) {
 		tmpDir := t.TempDir()
 		content := []byte("file content")
 
+		// Create a proper tar archive
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
 		header := &tar.Header{
 			Name:     "testfile.txt",
 			Typeflag: tar.TypeReg,
 			Mode:     0644,
 			Size:     int64(len(content)),
 		}
-		tr := tar.NewReader(bytes.NewReader(content))
+		err := tw.WriteHeader(header)
+		g.Expect(err).ToNot(HaveOccurred())
+		_, err = tw.Write(content)
+		g.Expect(err).ToNot(HaveOccurred())
+		err = tw.Close()
+		g.Expect(err).ToNot(HaveOccurred())
 
-		err := tarutil.ExtractEntry(header, tr, tmpDir, 0750)
+		tr := tar.NewReader(&buf)
+		_, err = tr.Next()
+		g.Expect(err).ToNot(HaveOccurred())
+
+		err = tarutil.ExtractEntry(header, tr, tmpDir, 0750)
 
 		g.Expect(err).ToNot(HaveOccurred())
-		data, err := os.ReadFile(filepath.Join(tmpDir, "testfile.txt"))
+		data, err := os.ReadFile(filepath.Clean(filepath.Join(tmpDir, "testfile.txt")))
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(data).To(Equal(content))
 	})
@@ -268,7 +317,7 @@ func TestExtractEntry(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		info, err := os.Lstat(filepath.Join(tmpDir, "link.txt"))
 		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(info.Mode()&os.ModeSymlink).To(Equal(os.ModeSymlink))
+		g.Expect(info.Mode() & os.ModeSymlink).To(Equal(os.ModeSymlink))
 	})
 
 	t.Run("ignores unsupported entry types", func(t *testing.T) {
@@ -304,14 +353,29 @@ func TestExtractEntry(t *testing.T) {
 	t.Run("prevents path traversal with absolute path", func(t *testing.T) {
 		g := NewWithT(t)
 		tmpDir := t.TempDir()
+		content := []byte("malicious content")
 
+		// Create a proper tar archive
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
 		header := &tar.Header{
 			Name:     "/etc/passwd",
 			Typeflag: tar.TypeReg,
 			Mode:     0644,
+			Size:     int64(len(content)),
 		}
+		err := tw.WriteHeader(header)
+		g.Expect(err).ToNot(HaveOccurred())
+		_, err = tw.Write(content)
+		g.Expect(err).ToNot(HaveOccurred())
+		err = tw.Close()
+		g.Expect(err).ToNot(HaveOccurred())
 
-		err := tarutil.ExtractEntry(header, nil, tmpDir, 0750)
+		tr := tar.NewReader(&buf)
+		_, err = tr.Next()
+		g.Expect(err).ToNot(HaveOccurred())
+
+		err = tarutil.ExtractEntry(header, tr, tmpDir, 0750)
 
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("illegal file path"))
@@ -322,18 +386,30 @@ func TestExtractEntry(t *testing.T) {
 		tmpDir := t.TempDir()
 		content := []byte("nested content")
 
+		// Create a proper tar archive
+		var buf bytes.Buffer
+		tw := tar.NewWriter(&buf)
 		header := &tar.Header{
 			Name:     "a/b/c/file.txt",
 			Typeflag: tar.TypeReg,
 			Mode:     0644,
 			Size:     int64(len(content)),
 		}
-		tr := tar.NewReader(bytes.NewReader(content))
+		err := tw.WriteHeader(header)
+		g.Expect(err).ToNot(HaveOccurred())
+		_, err = tw.Write(content)
+		g.Expect(err).ToNot(HaveOccurred())
+		err = tw.Close()
+		g.Expect(err).ToNot(HaveOccurred())
 
-		err := tarutil.ExtractEntry(header, tr, tmpDir, 0750)
+		tr := tar.NewReader(&buf)
+		_, err = tr.Next()
+		g.Expect(err).ToNot(HaveOccurred())
+
+		err = tarutil.ExtractEntry(header, tr, tmpDir, 0750)
 
 		g.Expect(err).ToNot(HaveOccurred())
-		data, err := os.ReadFile(filepath.Join(tmpDir, "a", "b", "c", "file.txt"))
+		data, err := os.ReadFile(filepath.Clean(filepath.Join(tmpDir, "a", "b", "c", "file.txt")))
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(data).To(Equal(content))
 	})
@@ -388,13 +464,13 @@ func TestExtractAll(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(dirInfo.IsDir()).To(BeTrue())
 
-		fileData, err := os.ReadFile(filepath.Join(tmpDir, "testdir", "file.txt"))
+		fileData, err := os.ReadFile(filepath.Clean(filepath.Join(tmpDir, "testdir", "file.txt")))
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(fileData).To(Equal(fileContent))
 
 		linkInfo, err := os.Lstat(filepath.Join(tmpDir, "testdir", "link.txt"))
 		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(linkInfo.Mode()&os.ModeSymlink).To(Equal(os.ModeSymlink))
+		g.Expect(linkInfo.Mode() & os.ModeSymlink).To(Equal(os.ModeSymlink))
 	})
 
 	t.Run("handles empty tar archive", func(t *testing.T) {
@@ -478,13 +554,12 @@ func TestExtractEntryIntegration(t *testing.T) {
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(dirInfo.IsDir()).To(BeTrue())
 
-		fileData, err := os.ReadFile(filepath.Join(tmpDir, "dir", "file.txt"))
+		fileData, err := os.ReadFile(filepath.Clean(filepath.Join(tmpDir, "dir", "file.txt")))
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(fileData).To(Equal(fileContent))
 
 		linkInfo, err := os.Lstat(filepath.Join(tmpDir, "dir", "link.txt"))
 		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(linkInfo.Mode()&os.ModeSymlink).To(Equal(os.ModeSymlink))
+		g.Expect(linkInfo.Mode() & os.ModeSymlink).To(Equal(os.ModeSymlink))
 	})
 }
-

@@ -126,5 +126,9 @@ func extractLayer(layer v1.Layer, targetDir string) error {
 		_ = rc.Close()
 	}()
 
-	return tarutil.ExtractAll(rc, targetDir, dirPerms)
+	if err := tarutil.ExtractAll(rc, targetDir, dirPerms); err != nil {
+		return fmt.Errorf("failed to extract tar archive: %w", err)
+	}
+
+	return nil
 }
