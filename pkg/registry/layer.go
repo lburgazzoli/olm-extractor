@@ -9,25 +9,23 @@ import (
 	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+
+	"github.com/lburgazzoli/olm-extractor/pkg/util/slices"
 )
 
 // hasAllRequiredContent checks if the extracted directory contains all required paths.
 // Returns true if at least one file/directory exists for each required path prefix.
 func hasAllRequiredContent(dir string, pathPrefixes []string) bool {
-	for _, prefix := range pathPrefixes {
+	return slices.All(pathPrefixes, func(prefix string) bool {
 		// Remove leading slash for filepath.Join
 		cleanPrefix := strings.TrimPrefix(prefix, "/")
 		path := filepath.Join(dir, cleanPrefix)
 
 		// Check if path exists (file or directory)
-		if _, err := os.Stat(path); err != nil {
-			// Missing a required path
-			return false
-		}
-	}
+		_, err := os.Stat(path)
 
-	// All required paths exist
-	return true
+		return err == nil
+	})
 }
 
 // layerContainsRelevantPaths checks if a layer contains any files matching the given path prefixes.

@@ -35,6 +35,7 @@ import (
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
+	"github.com/lburgazzoli/olm-extractor/pkg/util/slices"
 )
 
 const (
@@ -297,51 +298,50 @@ func processWebhooks(
 //
 // Returns empty string if the deployment cannot be found or has no secret volumes.
 func extractWebhookSecretName(objects []*unstructured.Unstructured, deploymentName string) string {
-	for _, obj := range objects {
-		if !kube.Is(obj, gvks.Deployment, deploymentName) {
+	deployment, found := slices.Find(objects, func(obj *unstructured.Unstructured) bool {
+		return kube.Is(obj, gvks.Deployment, deploymentName)
+	})
+	if !found {
+		return ""
+	}
+
+	// Extract volumes from deployment spec
+	volumes, found, err := unstructured.NestedSlice(deployment.Object, "spec", "template", "spec", "volumes")
+	if err != nil || !found {
+		return ""
+	}
+
+	secretVolumes := make([]secretVolumeInfo, 0, len(volumes))
+
+	// Collect all secret volumes
+	for _, vol := range volumes {
+		volumeMap, ok := vol.(map[string]any)
+		if !ok {
 			continue
 		}
 
-		// Extract volumes from deployment spec
-		volumes, found, err := unstructured.NestedSlice(obj.Object, "spec", "template", "spec", "volumes")
+		// Check if this volume has a secret
+		secretMap, found, err := unstructured.NestedMap(volumeMap, "secret")
 		if err != nil || !found {
 			continue
 		}
 
-		var secretVolumes []secretVolumeInfo
-
-		// Collect all secret volumes
-		for _, vol := range volumes {
-			volumeMap, ok := vol.(map[string]any)
-			if !ok {
-				continue
-			}
-
-			// Check if this volume has a secret
-			secretMap, found, err := unstructured.NestedMap(volumeMap, "secret")
-			if err != nil || !found {
-				continue
-			}
-
-			// Get the secret name and volume name
-			secretName, found, err := unstructured.NestedString(secretMap, "secretName")
-			if err != nil || !found || secretName == "" {
-				continue
-			}
-
-			volumeName, _, _ := unstructured.NestedString(volumeMap, "name")
-
-			secretVolumes = append(secretVolumes, secretVolumeInfo{
-				secretName: secretName,
-				volumeName: volumeName,
-			})
+		// Get the secret name and volume name
+		secretName, found, err := unstructured.NestedString(secretMap, "secretName")
+		if err != nil || !found || secretName == "" {
+			continue
 		}
 
-		// Return the best matching secret
-		return selectWebhookSecret(secretVolumes)
+		volumeName, _, _ := unstructured.NestedString(volumeMap, "name")
+
+		secretVolumes = append(secretVolumes, secretVolumeInfo{
+			secretName: secretName,
+			volumeName: volumeName,
+		})
 	}
 
-	return ""
+	// Return the best matching secret
+	return selectWebhookSecret(secretVolumes)
 }
 
 // secretVolumeInfo holds information about a secret volume.
@@ -375,15 +375,16 @@ func selectWebhookSecret(volumes []secretVolumeInfo) string {
 	webhookKeywords := []string{"webhook", "cert", "tls", "serving"}
 
 	// First pass: look for secrets with webhook-related names
-	for _, vol := range volumes {
-		lowerSecret := strings.ToLower(vol.secretName)
-		lowerVolume := strings.ToLower(vol.volumeName)
+	vol, found := slices.Find(volumes, func(v secretVolumeInfo) bool {
+		lowerSecret := strings.ToLower(v.secretName)
+		lowerVolume := strings.ToLower(v.volumeName)
 
-		for _, keyword := range webhookKeywords {
-			if strings.Contains(lowerSecret, keyword) || strings.Contains(lowerVolume, keyword) {
-				return vol.secretName
-			}
-		}
+		return slices.Any(webhookKeywords, func(keyword string) bool {
+			return strings.Contains(lowerSecret, keyword) || strings.Contains(lowerVolume, keyword)
+		})
+	})
+	if found {
+		return vol.secretName
 	}
 
 	// Fallback: return the first secret (most deployments only have one)
@@ -392,13 +393,9 @@ func selectWebhookSecret(volumes []secretVolumeInfo) string {
 
 // hasCertificate checks if a certificate with the given name exists in the result.
 func hasCertificate(objects []*unstructured.Unstructured, certName string) bool {
-	for _, obj := range objects {
-		if kube.IsKind(obj, gvks.Certificate) && obj.GetName() == certName {
-			return true
-		}
-	}
-
-	return false
+	return slices.Any(objects, func(obj *unstructured.Unstructured) bool {
+		return kube.IsKind(obj, gvks.Certificate) && obj.GetName() == certName
+	})
 }
 
 // createCertificate creates a cert-manager Certificate resource.

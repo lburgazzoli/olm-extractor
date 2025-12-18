@@ -9,6 +9,7 @@ import (
 	"github.com/operator-framework/operator-registry/alpha/declcfg"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/bundle"
+	"github.com/lburgazzoli/olm-extractor/pkg/util/slices"
 )
 
 var catalogPathPrefixes = []string{"/configs/"} //nolint:gochecknoglobals
@@ -146,17 +147,17 @@ func loadCatalog(ctx context.Context, dir string) (*declcfg.DeclarativeConfig, e
 
 // findPackage finds a package by name in the catalog.
 func findPackage(cfg *declcfg.DeclarativeConfig, name string) (*declcfg.Package, error) {
-	for i := range cfg.Packages {
-		if cfg.Packages[i].Name == name {
-			return &cfg.Packages[i], nil
-		}
+	pkg, found := slices.Find(cfg.Packages, func(p declcfg.Package) bool {
+		return p.Name == name
+	})
+	if found {
+		return &pkg, nil
 	}
 
 	// List available packages for helpful error message
-	available := make([]string, 0, len(cfg.Packages))
-	for i := range cfg.Packages {
-		available = append(available, cfg.Packages[i].Name)
-	}
+	available := slices.Map(cfg.Packages, func(p declcfg.Package) string {
+		return p.Name
+	})
 
 	if len(available) == 0 {
 		return nil, fmt.Errorf("package %q not found in catalog (catalog contains no packages)", name)
@@ -167,19 +168,20 @@ func findPackage(cfg *declcfg.DeclarativeConfig, name string) (*declcfg.Package,
 
 // findChannel finds a channel by name for a package in the catalog.
 func findChannel(cfg *declcfg.DeclarativeConfig, packageName string, channelName string) (*declcfg.Channel, error) {
-	for i := range cfg.Channels {
-		if cfg.Channels[i].Package == packageName && cfg.Channels[i].Name == channelName {
-			return &cfg.Channels[i], nil
-		}
+	ch, found := slices.Find(cfg.Channels, func(c declcfg.Channel) bool {
+		return c.Package == packageName && c.Name == channelName
+	})
+	if found {
+		return &ch, nil
 	}
 
 	// List available channels for helpful error message
-	var available []string
-	for i := range cfg.Channels {
-		if cfg.Channels[i].Package == packageName {
-			available = append(available, cfg.Channels[i].Name)
-		}
-	}
+	available := slices.Map(
+		slices.Filter(cfg.Channels, func(c declcfg.Channel) bool {
+			return c.Package == packageName
+		}),
+		func(c declcfg.Channel) string { return c.Name },
+	)
 
 	if len(available) == 0 {
 		return nil, fmt.Errorf("channel %q not found for package %q (package has no channels)", channelName, packageName)
@@ -192,17 +194,17 @@ func findChannel(cfg *declcfg.DeclarativeConfig, packageName string, channelName
 func findBundleInChannel(channel *declcfg.Channel, version string) (string, error) {
 	if version != "" {
 		// Find specific version
-		for i := range channel.Entries {
-			if channel.Entries[i].Name == version {
-				return channel.Entries[i].Name, nil
-			}
+		entry, found := slices.Find(channel.Entries, func(e declcfg.ChannelEntry) bool {
+			return e.Name == version
+		})
+		if found {
+			return entry.Name, nil
 		}
 
 		// List available versions for helpful error message
-		var available []string
-		for i := range channel.Entries {
-			available = append(available, channel.Entries[i].Name)
-		}
+		available := slices.Map(channel.Entries, func(e declcfg.ChannelEntry) string {
+			return e.Name
+		})
 
 		return "", fmt.Errorf("version %q not found in channel %q (available versions: %v)", version, channel.Name, available)
 	}
@@ -220,16 +222,17 @@ func findBundleInChannel(channel *declcfg.Channel, version string) (string, erro
 
 // extractBundleImage extracts the bundle image reference from a bundle's properties.
 func extractBundleImage(cfg *declcfg.DeclarativeConfig, bundleName string) (string, error) {
-	for i := range cfg.Bundles {
-		if cfg.Bundles[i].Name == bundleName {
-			// The bundle image is stored in the bundle's Image field
-			if cfg.Bundles[i].Image == "" {
-				return "", fmt.Errorf("bundle %q has no image reference", bundleName)
-			}
-
-			return cfg.Bundles[i].Image, nil
-		}
+	bundleEntry, found := slices.Find(cfg.Bundles, func(b declcfg.Bundle) bool {
+		return b.Name == bundleName
+	})
+	if !found {
+		return "", fmt.Errorf("bundle %q not found in catalog", bundleName)
 	}
 
-	return "", fmt.Errorf("bundle %q not found in catalog", bundleName)
+	// The bundle image is stored in the bundle's Image field
+	if bundleEntry.Image == "" {
+		return "", fmt.Errorf("bundle %q has no image reference", bundleName)
+	}
+
+	return bundleEntry.Image, nil
 }
