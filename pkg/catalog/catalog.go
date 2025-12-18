@@ -150,20 +150,11 @@ func findPackage(cfg *declcfg.DeclarativeConfig, name string) (*declcfg.Package,
 	pkg, found := slices.Find(cfg.Packages, func(p declcfg.Package) bool {
 		return p.Name == name
 	})
-	if found {
-		return &pkg, nil
+	if !found {
+		return nil, fmt.Errorf("package %q not found in catalog", name)
 	}
 
-	// List available packages for helpful error message
-	available := slices.Map(cfg.Packages, func(p declcfg.Package) string {
-		return p.Name
-	})
-
-	if len(available) == 0 {
-		return nil, fmt.Errorf("package %q not found in catalog (catalog contains no packages)", name)
-	}
-
-	return nil, fmt.Errorf("package %q not found in catalog (available packages: %v)", name, available)
+	return &pkg, nil
 }
 
 // findChannel finds a channel by name for a package in the catalog.
@@ -173,37 +164,18 @@ func findChannel(cfg *declcfg.DeclarativeConfig, packageName string, channelName
 		return p.Name == packageName
 	})
 	if !packageExists {
-		available := slices.Map(cfg.Packages, func(p declcfg.Package) string {
-			return p.Name
-		})
-		if len(available) == 0 {
-			return nil, fmt.Errorf("package %q not found in catalog (catalog contains no packages)", packageName)
-		}
-
-		return nil, fmt.Errorf("package %q not found in catalog (available packages: %v)", packageName, available)
+		return nil, fmt.Errorf("package %q not found in catalog", packageName)
 	}
 
 	// Then, search for the channel
 	ch, found := slices.Find(cfg.Channels, func(c declcfg.Channel) bool {
 		return c.Package == packageName && c.Name == channelName
 	})
-	if found {
-		return &ch, nil
+	if !found {
+		return nil, fmt.Errorf("channel %q not found for package %q", channelName, packageName)
 	}
 
-	// List available channels for helpful error message
-	available := slices.Map(
-		slices.Filter(cfg.Channels, func(c declcfg.Channel) bool {
-			return c.Package == packageName
-		}),
-		func(c declcfg.Channel) string { return c.Name },
-	)
-
-	if len(available) == 0 {
-		return nil, fmt.Errorf("channel %q not found for package %q (package has no channels)", channelName, packageName)
-	}
-
-	return nil, fmt.Errorf("channel %q not found for package %q (available channels: %v)", channelName, packageName, available)
+	return &ch, nil
 }
 
 // findBundleInChannel finds a bundle in a channel by version or returns the latest.
@@ -213,16 +185,11 @@ func findBundleInChannel(channel *declcfg.Channel, version string) (string, erro
 		entry, found := slices.Find(channel.Entries, func(e declcfg.ChannelEntry) bool {
 			return e.Name == version
 		})
-		if found {
-			return entry.Name, nil
+		if !found {
+			return "", fmt.Errorf("version %q not found in channel %q", version, channel.Name)
 		}
 
-		// List available versions for helpful error message
-		available := slices.Map(channel.Entries, func(e declcfg.ChannelEntry) string {
-			return e.Name
-		})
-
-		return "", fmt.Errorf("version %q not found in channel %q (available versions: %v)", version, channel.Name, available)
+		return entry.Name, nil
 	}
 
 	// Return the head of the channel (latest version)
