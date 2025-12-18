@@ -32,6 +32,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/lburgazzoli/olm-extractor/pkg/kube"
 	"github.com/lburgazzoli/olm-extractor/pkg/kube/gvks"
@@ -128,7 +129,7 @@ func Configure(objects []*unstructured.Unstructured, namespace string, cfg Confi
 		if kube.IsWebhookConfiguration(obj) {
 			return false
 		}
-		if kube.IsKind(obj, gvks.Service) && processedServiceNames[obj.GetName()] {
+		if kube.IsKind(obj, gvks.Service) && processedServiceNames.Has(obj.GetName()) {
 			return false
 		}
 
@@ -209,18 +210,18 @@ func createSelfSignedIssuer(name string, namespace string) (*unstructured.Unstru
 //   - Ensure the backing service exists (create if needed, update port if needed)
 //
 // Service Deduplication: Multiple webhooks may share the same service. The processedServices
-// map tracks which services have already been added to prevent duplicates in the output.
+// set tracks which services have already been added to prevent duplicates in the output.
 //
-// Returns the webhook objects and a map of processed service names.
+// Returns the webhook objects and a set of processed service names.
 func processWebhooks(
 	objects []*unstructured.Unstructured,
 	webhooks []*unstructured.Unstructured,
 	namespace string,
 	issuerName string,
 	issuerKind string,
-) ([]*unstructured.Unstructured, map[string]bool, error) {
+) ([]*unstructured.Unstructured, sets.Set[string], error) {
 	result := make([]*unstructured.Unstructured, 0, len(webhooks)*expectedObjectsPerWebhook)
-	processedServices := make(map[string]bool)
+	processedServices := sets.New[string]()
 
 	for _, obj := range webhooks {
 		info := kube.ExtractWebhookServiceInfo(obj)
@@ -248,6 +249,7 @@ func processWebhooks(
 
 		// Create Certificate and configure webhook
 		certName := info.ServiceName + certNameSuffix
+		annotationValue := namespace + "/" + certName
 
 		// Check if certificate already added
 		if !hasCertificate(result, certName) {
@@ -258,20 +260,19 @@ func processWebhooks(
 			result = append(result, cert)
 		}
 
-		// Add cert-manager annotation to webhook
-		annotationValue := namespace + "/" + certName
 		kube.SetAnnotation(obj, certmanagerv1.WantInjectAnnotation, annotationValue)
+
 		result = append(result, obj)
 
 		// Ensure service exists (only add once if shared by multiple webhooks)
-		if !processedServices[info.ServiceName] {
+		if !processedServices.Has(info.ServiceName) {
 			services, err := kube.EnsureService(objects, info.ServiceName, namespace, info.Port, webhookServiceSuffix)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to ensure service %s for webhook %s: %w", info.ServiceName, obj.GetName(), err)
 			}
 
 			result = append(result, services...)
-			processedServices[info.ServiceName] = true
+			processedServices.Insert(info.ServiceName)
 		}
 	}
 
