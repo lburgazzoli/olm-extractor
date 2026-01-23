@@ -7,7 +7,7 @@ require (
 	github.com/google/go-containerregistry v0.20.7
 	github.com/itchyny/gojq v0.12.18
 	github.com/onsi/gomega v1.39.0
-	github.com/operator-framework/api v0.37.0
+	github.com/operator-framework/api v0.38.0
 	github.com/operator-framework/operator-lifecycle-manager v0.38.0
 	github.com/operator-framework/operator-registry v1.61.0
 	github.com/spf13/cobra v1.10.2
@@ -115,7 +115,7 @@ require (
 	github.com/prometheus/common v0.67.4 // indirect
 	github.com/prometheus/procfs v0.19.2 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
-	github.com/sirupsen/logrus v1.9.3 // indirect
+	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
