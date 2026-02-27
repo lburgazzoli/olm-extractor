@@ -366,6 +366,58 @@ func TestCleanUnstructured(t *testing.T) {
 		g.Expect(subresources).To(HaveKey("status"), "subresources.status must be preserved")
 	})
 
+	t.Run("preserves emptyDir in volume definitions", func(t *testing.T) {
+		g := NewWithT(t)
+
+		// Deployment with emptyDir: {} volume - must be preserved
+		// olm-extractor was stripping this because cleanValue treats empty maps as nil
+		obj := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"metadata": map[string]any{
+					"name":      "test-operator",
+					"namespace": "test-ns",
+				},
+				"spec": map[string]any{
+					"template": map[string]any{
+						"spec": map[string]any{
+							"containers": []any{
+								map[string]any{
+									"name":  "operator",
+									"image": "registry.example.com/operator:latest",
+									"volumeMounts": []any{
+										map[string]any{
+											"name":      "tmp",
+											"mountPath": "/tmp",
+										},
+									},
+								},
+							},
+							"volumes": []any{
+								map[string]any{
+									"name":     "tmp",
+									"emptyDir": map[string]any{}, // Empty map - must be preserved!
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		cleaned := kube.CleanUnstructured(obj)
+
+		volumes, found, err := unstructured.NestedSlice(cleaned.Object, "spec", "template", "spec", "volumes")
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(found).To(BeTrue())
+		g.Expect(volumes).To(HaveLen(1))
+
+		volume := volumes[0].(map[string]any)
+		g.Expect(volume["name"]).To(Equal("tmp"))
+		g.Expect(volume).To(HaveKey("emptyDir"), "emptyDir field must be preserved even when empty")
+	})
+
 	t.Run("preserves subresources with scale in CRD", func(t *testing.T) {
 		g := NewWithT(t)
 

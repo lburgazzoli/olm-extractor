@@ -98,12 +98,48 @@ func cleanMap(obj map[string]any) map[string]any {
 			continue
 		}
 
+		// Preserve volume source fields that are intentionally empty maps (e.g., emptyDir: {})
+		// Kubernetes volume sources like emptyDir, projected, downwardAPI use empty maps
+		// as valid configurations. Without this, volumes lose their type and become invalid.
+		if isVolumeSourceKey(key) && isVolumeMap(obj) {
+			if value != nil {
+				result[key] = value
+			}
+
+			continue
+		}
+
 		if cleaned := cleanValue(value); cleaned != nil {
 			result[key] = cleaned
 		}
 	}
 
 	return result
+}
+
+// volumeSourceKeys contains all valid Kubernetes core/v1 VolumeSource field names.
+var volumeSourceKeys = map[string]bool{
+	"emptyDir":              true,
+	"hostPath":              true,
+	"configMap":             true,
+	"secret":                true,
+	"persistentVolumeClaim": true,
+	"downwardAPI":           true,
+	"projected":             true,
+	"nfs":                   true,
+	"csi":                   true,
+	"ephemeral":             true,
+}
+
+// isVolumeSourceKey checks if a key is a known Kubernetes volume source type.
+func isVolumeSourceKey(key string) bool {
+	return volumeSourceKeys[key]
+}
+
+// isVolumeMap checks if a map represents a Kubernetes volume entry (has a "name" field).
+func isVolumeMap(m map[string]any) bool {
+	_, hasName := m["name"]
+	return hasName
 }
 
 // isEnvVarMap checks if a map represents an environment variable entry.
