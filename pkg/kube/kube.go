@@ -117,28 +117,21 @@ func cleanMap(obj map[string]any) map[string]any {
 	return result
 }
 
-// volumeSourceKeys contains all valid Kubernetes core/v1 VolumeSource field names.
-var volumeSourceKeys = map[string]bool{
-	"emptyDir":              true,
-	"hostPath":              true,
-	"configMap":             true,
-	"secret":                true,
-	"persistentVolumeClaim": true,
-	"downwardAPI":           true,
-	"projected":             true,
-	"nfs":                   true,
-	"csi":                   true,
-	"ephemeral":             true,
-}
-
-// isVolumeSourceKey checks if a key is a known Kubernetes volume source type.
+// isVolumeSourceKey checks if a key is a known Kubernetes core/v1 VolumeSource field name.
 func isVolumeSourceKey(key string) bool {
-	return volumeSourceKeys[key]
+	switch key {
+	case "emptyDir", "hostPath", "configMap", "secret", "persistentVolumeClaim",
+		"downwardAPI", "projected", "nfs", "csi", "ephemeral":
+		return true
+	default:
+		return false
+	}
 }
 
 // isVolumeMap checks if a map represents a Kubernetes volume entry (has a "name" field).
 func isVolumeMap(m map[string]any) bool {
 	_, hasName := m["name"]
+
 	return hasName
 }
 
