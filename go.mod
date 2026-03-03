@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/cert-manager/cert-manager v1.19.4
-	github.com/google/go-containerregistry v0.21.1
+	github.com/google/go-containerregistry v0.21.2
 	github.com/itchyny/gojq v0.12.18
 	github.com/onsi/gomega v1.39.1
 	github.com/operator-framework/api v0.41.0
