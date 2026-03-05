@@ -8,7 +8,7 @@ require (
 	github.com/itchyny/gojq v0.12.18
 	github.com/onsi/gomega v1.39.1
 	github.com/operator-framework/api v0.41.0
-	github.com/operator-framework/operator-lifecycle-manager v0.40.0
+	github.com/operator-framework/operator-lifecycle-manager v0.41.0
 	github.com/operator-framework/operator-registry v1.64.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
@@ -164,7 +164,7 @@ require (
 	k8s.io/component-base v0.35.2 // indirect
 	k8s.io/klog v1.0.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
-	k8s.io/kube-aggregator v0.35.0 // indirect
+	k8s.io/kube-aggregator v0.35.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20260127142750-a19766b6e2d4 // indirect
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.34.0 // indirect
